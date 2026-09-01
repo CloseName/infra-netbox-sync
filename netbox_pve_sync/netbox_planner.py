@@ -7,6 +7,7 @@ import pynetbox
 from .netbox_metadata import (
     MANAGED_DEVICE_CUSTOM_FIELDS,
     build_device_custom_fields,
+    matches_sync_identity,
 )
 
 
@@ -51,33 +52,13 @@ def _find_device_match(nb_objects: dict, host):
             or {}
         )
 
-        identities = custom_fields.get(
-            'sync_identities'
-        )
-
-        if not isinstance(
-            identities,
-            list,
+        if matches_sync_identity(
+            custom_fields,
+            host,
         ):
-            continue
-
-        for identity in identities:
-            if not isinstance(
-                identity,
-                dict,
-            ):
-                continue
-
-            if (
-                identity.get('source')
-                == host.source
-                and identity.get('id')
-                == host.source_id
-            ):
-                identity_matches.append(
-                    device
-                )
-                break
+            identity_matches.append(
+                device
+            )
 
     if len(identity_matches) > 1:
         raise RuntimeError(
@@ -95,20 +76,31 @@ def _find_device_match(nb_objects: dict, host):
     if host.management_ip:
         for device in nb_objects['devices'].values():
             device_ip = _ip_without_prefix(
-                getattr(device, 'primary_ip4', None)
+                getattr(
+                    device,
+                    'primary_ip4',
+                    None,
+                )
             )
 
             if device_ip == host.management_ip:
-                return device, 'management_ip'
+                return (
+                    device,
+                    'management_ip',
+                )
 
     device = nb_objects['devices'].get(
         host.normalized_name.lower()
     )
 
     if device is not None:
-        return device, 'normalized_name'
+        return (
+            device,
+            'normalized_name',
+        )
 
     return None, None
+
 
 
 def _get_required(endpoint, *, description: str, **filters):

@@ -3,6 +3,7 @@ import ipaddress
 from .netbox_metadata import (
     MANAGED_DEVICE_CUSTOM_FIELDS,
     build_device_custom_fields,
+    matches_sync_identity,
 )
 
 
@@ -118,33 +119,13 @@ def _resolve_device(
             or {}
         )
 
-        identities = custom_fields.get(
-            'sync_identities'
-        )
-
-        if not isinstance(
-            identities,
-            list,
+        if matches_sync_identity(
+            custom_fields,
+            host,
         ):
-            continue
-
-        for identity in identities:
-            if not isinstance(
-                identity,
-                dict,
-            ):
-                continue
-
-            if (
-                identity.get('source')
-                == host.source
-                and identity.get('id')
-                == host.source_id
-            ):
-                identity_matches.append(
-                    device
-                )
-                break
+            identity_matches.append(
+                device
+            )
 
     if len(identity_matches) > 1:
         raise HostApplyError(
