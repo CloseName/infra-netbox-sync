@@ -12,6 +12,8 @@ import pynetbox
 import urllib3
 from proxmoxer import ProxmoxAPI, ResourceException
 
+from .proxmox_discovery import discover_hosts
+
 
 VALID_SYNC_MODES = {'inventory', 'plan', 'apply'}
 
@@ -92,29 +94,48 @@ def _run_inventory(_pve_api: ProxmoxAPI, _nb_objects: dict) -> None:
     print(f'  VLANs:            {len(_nb_objects["vlans"])}')
     print()
 
-    pve_nodes = _pve_api.nodes.get()
-    pve_virtual_machines = _pve_api.cluster.resources.get(type='vm')
+    hosts = discover_hosts(_pve_api)
 
-    print(f'Proxmox nodes: {len(pve_nodes)}')
-    for pve_node in pve_nodes:
-        print(
-            f'  node={pve_node.get("node")} '
-            f'status={pve_node.get("status", "unknown")}'
-        )
-
+    print(f'Discovered infrastructure hosts: {len(hosts)}')
     print()
-    print(f'Proxmox virtual machines: {len(pve_virtual_machines)}')
 
-    for pve_vm in sorted(
-            pve_virtual_machines,
-            key=lambda vm: (str(vm.get('node', '')), str(vm.get('vmid', '')))
-    ):
-        print(
-            f'  vmid={pve_vm.get("vmid")} '
-            f'name={pve_vm.get("name", "-")} '
-            f'node={pve_vm.get("node", "-")} '
-            f'status={pve_vm.get("status", "unknown")}'
-        )
+    for host in hosts:
+        print(f'HOST {host.normalized_name}')
+        print(f'  source:             {host.source}')
+        print(f'  source_id:          {host.source_id}')
+        print(f'  original_name:      {host.original_name}')
+        print(f'  management_ip:      {host.management_ip or "-"}')
+        print(f'  hypervisor:         {host.hypervisor}')
+        print(f'  hypervisor_version: {host.hypervisor_version or "-"}')
+        print(f'  cpu_model:          {host.cpu.model or "-"}')
+        print(f'  cpu_vendor:         {host.cpu.vendor or "-"}')
+        print(f'  cpu_sockets:        {host.cpu.sockets}')
+        print(f'  cpu_cores:          {host.cpu.cores}')
+        print(f'  logical_cpus:       {host.cpu.logical_cpus}')
+        print(f'  memory_mib:         {host.memory_bytes // 1024**2}')
+        print(f'  physical_disks:     {len(host.disks)}')
+
+        for disk in host.disks:
+            print(
+                f'    DISK path={disk.path} '
+                f'model={disk.model or "-"} '
+                f'serial={disk.serial or "-"} '
+                f'type={disk.disk_type or "-"} '
+                f'size_gib={disk.size_bytes / 1024**3:.2f} '
+                f'health={disk.health or "-"}'
+            )
+
+        print(f'  storages:           {len(host.storages)}')
+
+        for storage in host.storages:
+            print(
+                f'    STORAGE name={storage.name} '
+                f'type={storage.storage_type or "-"} '
+                f'total_gib={storage.total_bytes / 1024**3:.2f} '
+                f'active={storage.active}'
+            )
+
+        print()
 
 
 def _run_plan(_pve_api: ProxmoxAPI, _nb_objects: dict) -> None:
