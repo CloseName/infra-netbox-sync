@@ -13,7 +13,7 @@ import urllib3
 from proxmoxer import ProxmoxAPI, ResourceException
 
 
-VALID_SYNC_MODES = {'inventory', 'apply'}
+VALID_SYNC_MODES = {'inventory', 'plan', 'apply'}
 
 
 def _read_secret(variable_name: str) -> str:
@@ -115,6 +115,144 @@ def _run_inventory(_pve_api: ProxmoxAPI, _nb_objects: dict) -> None:
             f'node={pve_vm.get("node", "-")} '
             f'status={pve_vm.get("status", "unknown")}'
         )
+
+
+def _run_plan(_pve_api: ProxmoxAPI, _nb_objects: dict) -> None:
+    """
+    Build a read-only synchronization plan.
+
+    No NetBox objects are created, updated or deleted.
+    """
+
+    print('=== SAFE PLAN MODE ===')
+    print('No changes will be written to NetBox.')
+    print()
+
+    create_count = 0
+    update_count = 0
+    unchanged_count = 0
+    blocked_count = 0
+
+    for pve_node in _pve_api.nodes.get():
+        node_name = pve_node['node']
+        nb_device = _nb_objects['devices'].get(node_name.lower())
+        pve_vms = _pve_api.nodes(node_name).qemu.get()
+
+        if nb_device is None:
+            print(
+                f'BLOCKED node={node_name}: '
+                f'NetBox device with matching name was not found'
+            )
+
+            for pve_vm in pve_vms:
+                print(
+                    f'  BLOCKED vmid={pve_vm["vmid"]} '
+                    f'name={pve_vm.get("name", "-")}'
+                )
+                blocked_count += 1
+
+            continue
+
+        print(
+            f'NODE node={node_name} '
+            f'netbox_device_id={nb_device.id}'
+        )
+
+        for pve_vm in pve_vms:
+            vmid = str(pve_vm['vmid'])
+
+            pve_config = _pve_api \
+                .nodes(node_name) \
+                .qemu(pve_vm['vmid']) \
+                .config.get()
+
+            expected_name = pve_vm['name']
+            expected_vcpus = int(_get_virtual_machine_vcpus(pve_config))
+            expected_memory = int(pve_config['memory'])
+            expected_status = (
+                'active'
+                if pve_vm['status'] == 'running'
+                else 'offline'
+            )
+
+            nb_vm = _nb_objects['virtual_machines'].get(vmid)
+
+            if nb_vm is None:
+                print(
+                    f'  CREATE vmid={vmid} '
+                    f'name={expected_name} '
+                    f'vcpus={expected_vcpus} '
+                    f'memory={expected_memory} '
+                    f'status={expected_status}'
+                )
+                create_count += 1
+                continue
+
+            changes = []
+
+            if str(nb_vm.name) != expected_name:
+                changes.append(
+                    f'name:{nb_vm.name}->{expected_name}'
+                )
+
+            try:
+                current_vcpus = int(float(nb_vm.vcpus))
+            except (TypeError, ValueError):
+                current_vcpus = None
+
+            if current_vcpus != expected_vcpus:
+                changes.append(
+                    f'vcpus:{current_vcpus}->{expected_vcpus}'
+                )
+
+            try:
+                current_memory = int(nb_vm.memory)
+            except (TypeError, ValueError):
+                current_memory = None
+
+            if current_memory != expected_memory:
+                changes.append(
+                    f'memory:{current_memory}->{expected_memory}'
+                )
+
+            current_status = str(
+                getattr(nb_vm.status, 'value', nb_vm.status)
+            )
+
+            if current_status != expected_status:
+                changes.append(
+                    f'status:{current_status}->{expected_status}'
+                )
+
+            current_device = getattr(nb_vm, 'device', None)
+            current_device_id = getattr(current_device, 'id', None)
+
+            if current_device_id != nb_device.id:
+                changes.append(
+                    f'device:{current_device_id}->{nb_device.id}'
+                )
+
+            if changes:
+                print(
+                    f'  UPDATE vmid={vmid} '
+                    f'name={expected_name} '
+                    + ' '.join(changes)
+                )
+                update_count += 1
+            else:
+                print(
+                    f'  SKIP vmid={vmid} '
+                    f'name={expected_name} '
+                    f'reason=no-change'
+                )
+                unchanged_count += 1
+
+    print()
+    print('Plan summary:')
+    print(f'  CREATE:  {create_count}')
+    print(f'  UPDATE:  {update_count}')
+    print(f'  SKIP:    {unchanged_count}')
+    print(f'  BLOCKED: {blocked_count}')
 
 
 def _load_nb_objects(_nb_api: pynetbox.api) -> dict:
@@ -542,6 +680,13 @@ def main():
 
     if sync_mode == 'inventory':
         _run_inventory(
+            pve_api,
+            nb_objects,
+        )
+        return
+
+    if sync_mode == 'plan':
+        _run_plan(
             pve_api,
             nb_objects,
         )
