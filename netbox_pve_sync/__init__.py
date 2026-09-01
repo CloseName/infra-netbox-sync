@@ -15,6 +15,7 @@ from proxmoxer import ProxmoxAPI, ResourceException
 from .proxmox_discovery import discover_hosts
 from .netbox_planner import NetBoxTargetConfig, plan_hosts
 from .netbox_apply import apply_hosts
+from .netbox_vm_apply import apply_virtual_machines
 
 
 VALID_SYNC_MODES = {'inventory', 'plan', 'apply'}
@@ -821,10 +822,13 @@ def main():
             '',
         ).strip().lower()
 
-        if apply_scope != 'host':
+        if apply_scope not in {
+            'host',
+            'vm',
+        }:
             raise SystemExit(
                 'SYNC_MODE=apply requires '
-                'APPLY_SCOPE=host. '
+                'APPLY_SCOPE=host or vm. '
                 'No changes were written.'
             )
 
@@ -880,18 +884,33 @@ def main():
             cluster_name=os.environ['NB_CLUSTER_NAME'],
         )
 
-        apply_hosts(
-            nb_api,
-            hosts,
-            target_config,
-            confirmed=(
-                os.getenv(
-                    'APPLY_CONFIRM',
-                    ''
-                ) == 'HOST_WRITE'
-            ),
-        )
-        return
+        if apply_scope == 'host':
+            apply_hosts(
+                nb_api,
+                hosts,
+                target_config,
+                confirmed=(
+                    os.getenv(
+                        'APPLY_CONFIRM',
+                        ''
+                    ) == 'HOST_WRITE'
+                ),
+            )
+            return
+
+        if apply_scope == 'vm':
+            apply_virtual_machines(
+                nb_api,
+                hosts,
+                target_config,
+                confirmed=(
+                    os.getenv(
+                        'APPLY_CONFIRM',
+                        ''
+                    ) == 'VM_WRITE'
+                ),
+            )
+            return
 
     print('=== APPLY MODE ===')
     print('WARNING: changes to NetBox are enabled.')

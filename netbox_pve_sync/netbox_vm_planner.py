@@ -95,8 +95,15 @@ def _find_vm_match(
     name_matches = [
         candidate
         for candidate in existing_vms
-        if candidate.name
-        == discovered_vm.original_name
+        if (
+            candidate.name.casefold()
+            == discovered_vm.original_name.casefold()
+            and getattr(
+                candidate,
+                'tenant',
+                None,
+            ) is None
+        )
     ]
 
     if len(name_matches) > 1:
