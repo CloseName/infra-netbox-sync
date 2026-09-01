@@ -68,7 +68,11 @@ def _discover_host_interfaces(pve_api, node_name):
                         )
                     ) == '1'
                 ),
-                comments=raw.get('comments'),
+                comments=(
+                    str(raw.get('comments')).strip()
+                    if raw.get('comments')
+                    else None
+                ),
             )
         )
 
