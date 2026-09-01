@@ -173,7 +173,50 @@ def _run_inventory(_pve_api: ProxmoxAPI, _nb_objects: dict) -> None:
                     f'ips={addresses}'
                 )
 
+        print(f'  containers:         {len(host.containers)}')
+
+        for container in sorted(
+                host.containers,
+                key=lambda item: item.vmid
+        ):
+            print(
+                f'    LXC vmid={container.vmid} '
+                f'source_id={container.source_id} '
+                f'name={container.original_name} '
+                f'status={container.status} '
+                f'os={container.os_type or "-"} '
+                f'arch={container.architecture or "-"} '
+                f'vcpus={container.vcpus} '
+                f'memory_mib={container.memory_bytes // 1024**2} '
+                f'swap_mib={container.swap_bytes // 1024**2} '
+                f'autostart={container.autostart} '
+                f'unprivileged={container.unprivileged}'
+            )
+
+            for disk in container.disks:
+                print(
+                    f'      DISK name={disk.name} '
+                    f'storage={disk.storage or "-"} '
+                    f'size_gib={disk.size_bytes / 1024**3:.2f}'
+                )
+
+            for interface in container.interfaces:
+                addresses = (
+                    ','.join(interface.ip_addresses)
+                    if interface.ip_addresses
+                    else '-'
+                )
+
+                print(
+                    f'      NIC name={interface.name} '
+                    f'mac={interface.mac_address or "-"} '
+                    f'bridge={interface.bridge or "-"} '
+                    f'vlan={interface.vlan_id if interface.vlan_id is not None else "-"} '
+                    f'ips={addresses}'
+                )
+
         print()
+
 
 
 def _run_plan(_pve_api: ProxmoxAPI, _nb_objects: dict) -> None:

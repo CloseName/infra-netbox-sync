@@ -88,6 +88,10 @@ def discover_hosts(pve_api) -> list[DiscoveredHost]:
                     pve_api,
                     node_name,
                 ),
+                containers=_discover_containers(
+                    pve_api,
+                    node_name,
+                ),
             )
         )
 
@@ -207,7 +211,7 @@ def _discover_virtual_machines(pve_api, node_name: str):
 
             mac = None
 
-            for model in ('virtio', 'e1000', 'rtl8139', 'vmxnet3'):
+            for model in ('virtio', 'e1000', 'e1000e', 'rtl8139', 'vmxnet3'):
                 if model in definition:
                     mac = definition[model]
                     break
@@ -297,3 +301,131 @@ def _discover_virtual_machines(pve_api, node_name: str):
         )
 
     return discovered_vms
+
+
+def _discover_containers(pve_api, node_name: str):
+    from .discovery import (
+        DiscoveredContainer,
+        DiscoveredInterface,
+        DiscoveredVirtualDisk,
+    )
+
+    discovered_containers = []
+
+    for container in pve_api.nodes(node_name).lxc.get():
+        vmid = int(container['vmid'])
+
+        config = (
+            pve_api.nodes(node_name)
+            .lxc(vmid)
+            .config.get()
+        )
+
+        interfaces = []
+
+        for key, raw_value in config.items():
+            key = str(key)
+
+            if not key.startswith('net'):
+                continue
+
+            definition = _parse_config_definition(raw_value)
+
+            vlan_id = None
+
+            if definition.get('tag') not in (None, ''):
+                try:
+                    vlan_id = int(definition['tag'])
+                except ValueError:
+                    pass
+
+            ip_addresses = []
+
+            raw_ip = definition.get('ip')
+
+            if raw_ip and raw_ip.lower() not in ('dhcp', 'manual'):
+                ip_addresses.append(raw_ip)
+
+            interfaces.append(
+                DiscoveredInterface(
+                    name=definition.get('name', key),
+                    mac_address=definition.get('hwaddr'),
+                    bridge=definition.get('bridge'),
+                    vlan_id=vlan_id,
+                    ip_addresses=ip_addresses,
+                )
+            )
+
+        disks = []
+
+        for key, raw_value in config.items():
+            key = str(key)
+
+            if key != 'rootfs' and not key.startswith('mp'):
+                continue
+
+            definition = _parse_config_definition(raw_value)
+
+            storage = definition.get('storage')
+
+            if storage is None:
+                first_component = str(raw_value).split(',', 1)[0]
+
+                if ':' in first_component:
+                    storage = first_component.split(':', 1)[0]
+
+            disks.append(
+                DiscoveredVirtualDisk(
+                    name=key,
+                    storage=storage,
+                    size_bytes=_parse_size_bytes(
+                        definition.get('size', '')
+                    ),
+                )
+            )
+
+        original_name = str(
+            config.get(
+                'hostname',
+                container.get('name', f'lxc-{vmid}')
+            )
+        )
+
+        discovered_containers.append(
+            DiscoveredContainer(
+                source='proxmox',
+                source_id=f'proxmox:{node_name}:lxc:{vmid}',
+                node_source_id=node_name,
+
+                vmid=vmid,
+                original_name=original_name,
+                normalized_name=original_name,
+
+                status=str(
+                    container.get('status', 'unknown')
+                ),
+                architecture=config.get('arch'),
+                os_type=config.get('ostype'),
+
+                vcpus=int(config.get('cores', 1)),
+                memory_bytes=int(
+                    config.get('memory', 0)
+                ) * 1024 ** 2,
+                swap_bytes=int(
+                    config.get('swap', 0)
+                ) * 1024 ** 2,
+
+                autostart=str(
+                    config.get('onboot', '0')
+                ) == '1',
+
+                unprivileged=str(
+                    config.get('unprivileged', '0')
+                ) == '1',
+
+                disks=disks,
+                interfaces=interfaces,
+            )
+        )
+
+    return discovered_containers

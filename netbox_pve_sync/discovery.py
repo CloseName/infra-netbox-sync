@@ -51,6 +51,7 @@ class DiscoveredHost:
     disks: list[DiscoveredDisk] = field(default_factory=list)
     storages: list[DiscoveredStorage] = field(default_factory=list)
     virtual_machines: list['DiscoveredVirtualMachine'] = field(default_factory=list)
+    containers: list['DiscoveredContainer'] = field(default_factory=list)
 
 
 @dataclass
@@ -83,6 +84,30 @@ class DiscoveredVirtualMachine:
     vcpus: int
     memory_bytes: int
     autostart: bool
+
+    disks: list[DiscoveredVirtualDisk] = field(default_factory=list)
+    interfaces: list[DiscoveredInterface] = field(default_factory=list)
+
+
+@dataclass
+class DiscoveredContainer:
+    source: str
+    source_id: str
+    node_source_id: str
+
+    vmid: int
+    original_name: str
+    normalized_name: str
+
+    status: str
+    architecture: Optional[str]
+    os_type: Optional[str]
+
+    vcpus: int
+    memory_bytes: int
+    swap_bytes: int
+    autostart: bool
+    unprivileged: bool
 
     disks: list[DiscoveredVirtualDisk] = field(default_factory=list)
     interfaces: list[DiscoveredInterface] = field(default_factory=list)
