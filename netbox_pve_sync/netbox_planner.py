@@ -1,7 +1,13 @@
 import ipaddress
+import json
 from dataclasses import dataclass
 
 import pynetbox
+
+from .netbox_metadata import (
+    MANAGED_DEVICE_CUSTOM_FIELDS,
+    build_device_custom_fields,
+)
 
 
 @dataclass
@@ -26,13 +32,65 @@ def _ip_without_prefix(value):
 
 def _find_device_match(nb_objects: dict, host):
     """
-    Transitional matching policy.
+    Device matching priority:
 
-    Later source_id/provider serial/MAC will have higher priority.
-    For now:
-      1. management IP
-      2. normalized device name
+      1. stable sync identity
+      2. management IP
+      3. normalized device name
     """
+
+    identity_matches = []
+
+    for device in nb_objects['devices'].values():
+        custom_fields = (
+            getattr(
+                device,
+                'custom_fields',
+                None,
+            )
+            or {}
+        )
+
+        identities = custom_fields.get(
+            'sync_identities'
+        )
+
+        if not isinstance(
+            identities,
+            list,
+        ):
+            continue
+
+        for identity in identities:
+            if not isinstance(
+                identity,
+                dict,
+            ):
+                continue
+
+            if (
+                identity.get('source')
+                == host.source
+                and identity.get('id')
+                == host.source_id
+            ):
+                identity_matches.append(
+                    device
+                )
+                break
+
+    if len(identity_matches) > 1:
+        raise RuntimeError(
+            f'Duplicate sync identity '
+            f'{host.source}:{host.source_id} '
+            f'in NetBox'
+        )
+
+    if len(identity_matches) == 1:
+        return (
+            identity_matches[0],
+            'sync_identity',
+        )
 
     if host.management_ip:
         for device in nb_objects['devices'].values():
@@ -620,6 +678,62 @@ def plan_hosts(
             device,
             site,
         )
+
+        existing_custom_fields = (
+            dict(
+                getattr(
+                    device,
+                    'custom_fields',
+                    None,
+                )
+                or {}
+            )
+            if device is not None
+            else {}
+        )
+
+        desired_custom_fields = (
+            build_device_custom_fields(
+                host,
+                existing_custom_fields,
+            )
+        )
+
+        print()
+        print('  MANAGED CUSTOM FIELDS')
+
+        for field_name in (
+            MANAGED_DEVICE_CUSTOM_FIELDS
+        ):
+            current = (
+                existing_custom_fields.get(
+                    field_name
+                )
+            )
+
+            desired = (
+                desired_custom_fields.get(
+                    field_name
+                )
+            )
+
+            action = (
+                'KEEP'
+                if current == desired
+                else 'SET'
+            )
+
+            rendered = json.dumps(
+                desired,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+
+            print(
+                f'    {action} '
+                f'{field_name}='
+                f'{rendered}'
+            )
 
         print()
         print('  DISCOVERED HARDWARE')
