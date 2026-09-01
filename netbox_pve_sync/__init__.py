@@ -19,6 +19,7 @@ from .netbox_vm_apply import apply_virtual_machines
 from .netbox_vm_network_apply import apply_vm_networks
 from .netbox_lxc_apply import apply_lxc_containers
 from .netbox_lxc_network_apply import apply_lxc_networks
+from .netbox_full_apply import apply_full_sync
 
 
 VALID_SYNC_MODES = {'inventory', 'plan', 'apply'}
@@ -831,11 +832,13 @@ def main():
             'vm-network',
             'lxc',
             'lxc-network',
+            'full',
         }:
             raise SystemExit(
                 'SYNC_MODE=apply requires '
                 'APPLY_SCOPE=host, vm, '
-                'vm-network, or lxc. '
+                'vm-network, lxc, '
+                'lxc-network, or full. '
                 'No changes were written.'
             )
 
@@ -960,6 +963,21 @@ def main():
                         ''
                     )
                     == 'LXC_NETWORK_WRITE'
+                ),
+            )
+            return
+
+        if apply_scope == 'full':
+            apply_full_sync(
+                nb_api,
+                hosts,
+                target_config,
+                confirmed=(
+                    os.getenv(
+                        'APPLY_CONFIRM',
+                        ''
+                    )
+                    == 'FULL_WRITE'
                 ),
             )
             return
