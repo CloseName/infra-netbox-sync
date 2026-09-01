@@ -14,6 +14,10 @@ from .netbox_vm_planner import (
     plan_virtual_machines,
 )
 
+from .netbox_vm_network_planner import (
+    plan_vm_networks,
+)
+
 
 @dataclass
 class NetBoxTargetConfig:
@@ -765,6 +769,13 @@ def plan_hosts(
             nb_api,
             host,
             cluster,
+        )
+
+        plan_vm_networks(
+            nb_api,
+            host,
+            cluster,
+            site,
         )
 
         print()
