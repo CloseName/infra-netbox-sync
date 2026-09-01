@@ -39,6 +39,26 @@ def _read_secret(variable_name: str) -> str:
     return value
 
 
+def _get_pve_token_name(pve_user: str) -> str:
+    token_id = _read_secret('PVE_API_TOKEN')
+
+    if '!' not in token_id:
+        return token_id
+
+    token_user, token_name = token_id.split('!', 1)
+
+    if token_user != pve_user:
+        raise RuntimeError(
+            f'PVE token belongs to "{token_user}", '
+            f'but PVE_API_USER is "{pve_user}"'
+        )
+
+    if not token_name:
+        raise RuntimeError('PVE token name is empty')
+
+    return token_name
+
+
 def _get_sync_mode() -> str:
     sync_mode = os.getenv('SYNC_MODE', 'inventory').strip().lower()
 
@@ -501,10 +521,12 @@ def main():
     print(f'SYNC_MODE={sync_mode}')
 
     # Instantiate connection to the Proxmox VE API
+    pve_user = os.environ['PVE_API_USER'].strip()
+
     pve_api = ProxmoxAPI(
         host=os.environ['PVE_API_HOST'],
-        user=os.environ['PVE_API_USER'],
-        token_name=_read_secret('PVE_API_TOKEN'),
+        user=pve_user,
+        token_name=_get_pve_token_name(pve_user),
         token_value=_read_secret('PVE_API_SECRET'),
         verify_ssl=os.getenv('PVE_API_VERIFY_SSL', 'false').lower() == 'true',
     )
