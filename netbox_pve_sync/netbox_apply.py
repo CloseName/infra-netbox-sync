@@ -1,5 +1,10 @@
 import ipaddress
 
+from .netbox_metadata import (
+    MANAGED_DEVICE_CUSTOM_FIELDS,
+    build_device_custom_fields,
+)
+
 
 class HostApplyError(RuntimeError):
     pass
@@ -96,23 +101,122 @@ def _resolve_device(
         host,
         site,
 ):
-    matches = list(
-        nb_api.dcim.devices.filter(
-            name=host.normalized_name
-        )
+    devices = list(
+        nb_api.dcim.devices.all()
     )
 
-    if not matches:
-        return None
+    # 1. Stable source identity
+    identity_matches = []
 
-    if len(matches) != 1:
-        raise HostApplyError(
-            f'Device name conflict: '
-            f'{host.normalized_name!r} '
-            f'matches={len(matches)}'
+    for device in devices:
+        custom_fields = (
+            getattr(
+                device,
+                'custom_fields',
+                None,
+            )
+            or {}
         )
 
-    device = matches[0]
+        identities = custom_fields.get(
+            'sync_identities'
+        )
+
+        if not isinstance(
+            identities,
+            list,
+        ):
+            continue
+
+        for identity in identities:
+            if not isinstance(
+                identity,
+                dict,
+            ):
+                continue
+
+            if (
+                identity.get('source')
+                == host.source
+                and identity.get('id')
+                == host.source_id
+            ):
+                identity_matches.append(
+                    device
+                )
+                break
+
+    if len(identity_matches) > 1:
+        raise HostApplyError(
+            f'Duplicate sync identity '
+            f'{host.source}:{host.source_id} '
+            f'matches={len(identity_matches)}'
+        )
+
+    if len(identity_matches) == 1:
+        device = identity_matches[0]
+        reason = 'sync_identity'
+
+    else:
+        # 2. Management IP
+        ip_matches = []
+
+        if host.management_ip:
+            for candidate in devices:
+                primary = getattr(
+                    candidate,
+                    'primary_ip4',
+                    None,
+                )
+
+                if primary is None:
+                    continue
+
+                try:
+                    current_ip = _address_ip(
+                        primary
+                    )
+                except ValueError:
+                    continue
+
+                if current_ip == host.management_ip:
+                    ip_matches.append(
+                        candidate
+                    )
+
+        if len(ip_matches) > 1:
+            raise HostApplyError(
+                f'Management IP conflict: '
+                f'{host.management_ip} '
+                f'matches={len(ip_matches)}'
+            )
+
+        if len(ip_matches) == 1:
+            device = ip_matches[0]
+            reason = 'management_ip'
+
+        else:
+            # 3. Name fallback
+            name_matches = [
+                candidate
+                for candidate in devices
+                if candidate.name
+                == host.normalized_name
+            ]
+
+            if len(name_matches) > 1:
+                raise HostApplyError(
+                    f'Device name conflict: '
+                    f'{host.normalized_name!r} '
+                    f'matches={len(name_matches)}'
+                )
+
+            if not name_matches:
+                return None, None
+
+            device = name_matches[0]
+            reason = 'normalized_name'
+
     data = device.serialize()
 
     existing_site = _object_id(
@@ -121,12 +225,14 @@ def _resolve_device(
 
     if existing_site != site.id:
         raise HostApplyError(
-            f'Device {host.normalized_name!r} '
-            f'already exists outside target site: '
+            f'Device {device.name!r} '
+            f'matched by {reason} but '
+            f'is outside target site: '
             f'site_id={existing_site}'
         )
 
-    return device
+    return device, reason
+
 
 
 def _load_existing_interfaces(
@@ -211,12 +317,47 @@ def _desired_interface_type(
     return 'other'
 
 
+
+def _managed_metadata(
+        host,
+        device,
+):
+    existing = {}
+
+    if device is not None:
+        existing = dict(
+            getattr(
+                device,
+                'custom_fields',
+                None,
+            )
+            or {}
+        )
+
+    desired = build_device_custom_fields(
+        host,
+        existing,
+    )
+
+    changed = [
+        field_name
+        for field_name
+        in MANAGED_DEVICE_CUSTOM_FIELDS
+        if (
+            existing.get(field_name)
+            != desired.get(field_name)
+        )
+    ]
+
+    return desired, changed
+
+
 def _preflight_host(
         nb_api,
         host,
         site,
 ):
-    device = _resolve_device(
+    device, match_reason = _resolve_device(
         nb_api,
         host,
         site,
@@ -243,9 +384,10 @@ def _preflight_host(
             f'name on {host.normalized_name}'
         )
 
-    management_interface, management_address = (
-        _management_binding(host)
-    )
+    (
+        management_interface,
+        management_address,
+    ) = _management_binding(host)
 
     addresses = []
 
@@ -314,16 +456,30 @@ def _preflight_host(
                 )
             )
 
+    (
+        desired_custom_fields,
+        changed_custom_fields,
+    ) = _managed_metadata(
+        host,
+        device,
+    )
+
     return {
         'host': host,
         'device': device,
+        'match_reason': match_reason,
         'interfaces': existing_interfaces,
         'management_interface':
             management_interface,
         'management_address':
             management_address,
         'addresses': addresses,
+        'desired_custom_fields':
+            desired_custom_fields,
+        'changed_custom_fields':
+            changed_custom_fields,
     }
+
 
 
 def _device_changes(
@@ -334,6 +490,8 @@ def _device_changes(
         platform,
         device_type,
         cluster,
+        desired_custom_fields,
+        changed_custom_fields,
 ):
     data = device.serialize()
     changes = {}
@@ -353,7 +511,15 @@ def _device_changes(
         ):
             changes[field] = desired_id
 
+    if changed_custom_fields:
+        # Send the complete current+managed CF map so
+        # existing manual fields are preserved.
+        changes['custom_fields'] = (
+            desired_custom_fields
+        )
+
     return changes
+
 
 
 def _interface_changes(
@@ -480,7 +646,27 @@ def apply_hosts(
         print(
             f'{action} DEVICE '
             f'{host.normalized_name}'
+            + (
+                f' reason={context["match_reason"]}'
+                if context["match_reason"]
+                else ''
+            )
         )
+
+        changed_cf = context[
+            'changed_custom_fields'
+        ]
+
+        print(
+            f'  managed_custom_fields_changed='
+            f'{len(changed_cf)}'
+        )
+
+        if changed_cf:
+            print(
+                '  managed_custom_fields='
+                + ','.join(changed_cf)
+            )
 
         print(
             f'  interfaces='
@@ -533,6 +719,9 @@ def apply_hosts(
                     platform=platform.id,
                     cluster=cluster.id,
                     status='active',
+                    custom_fields=context[
+                        'desired_custom_fields'
+                    ],
                 )
             )
 
@@ -552,6 +741,12 @@ def apply_hosts(
                 platform=platform,
                 device_type=device_type,
                 cluster=cluster,
+                desired_custom_fields=context[
+                    'desired_custom_fields'
+                ],
+                changed_custom_fields=context[
+                    'changed_custom_fields'
+                ],
             )
 
             if changes:
