@@ -18,6 +18,10 @@ from .netbox_vm_network_planner import (
     plan_vm_networks,
 )
 
+from .netbox_lxc_planner import (
+    plan_lxc_containers,
+)
+
 
 @dataclass
 class NetBoxTargetConfig:
@@ -776,6 +780,12 @@ def plan_hosts(
             host,
             cluster,
             site,
+        )
+
+        plan_lxc_containers(
+            nb_api,
+            host,
+            cluster,
         )
 
         print()
