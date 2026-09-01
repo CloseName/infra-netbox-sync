@@ -3,6 +3,9 @@ from .netbox_vm_apply import apply_virtual_machines
 from .netbox_vm_network_apply import apply_vm_networks
 from .netbox_lxc_apply import apply_lxc_containers
 from .netbox_lxc_network_apply import apply_lxc_networks
+from .netbox_disappearance import (
+    report_missing_managed_objects,
+)
 
 
 STAGES = (
@@ -96,6 +99,24 @@ def apply_full_sync(
             confirmed=False,
             phase='PRECHECK',
         )
+
+    print()
+    print(
+        '========================================'
+    )
+    print(
+        'FULL SYNC PRECHECK: '
+        'DISAPPEARANCE'
+    )
+    print(
+        '========================================'
+    )
+
+    report_missing_managed_objects(
+        nb_api,
+        hosts,
+        config,
+    )
 
     print()
     print(
