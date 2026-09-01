@@ -3,8 +3,76 @@ from .discovery import (
     DiscoveredDisk,
     DiscoveredHost,
     DiscoveredStorage,
+    DiscoveredHostInterface,
 )
 
+
+
+def _discover_host_interfaces(pve_api, node_name):
+    discovered = []
+
+    for raw in pve_api.nodes(node_name).network.get():
+        name = raw.get('iface')
+
+        if not name:
+            continue
+
+        addresses = []
+
+        cidr = raw.get('cidr')
+        address = raw.get('address')
+        netmask = raw.get('netmask')
+
+        if cidr:
+            addresses.append(str(cidr))
+        elif address:
+            if netmask:
+                addresses.append(f'{address}/{netmask}')
+            else:
+                addresses.append(str(address))
+
+        vlan_id = None
+
+        if raw.get('type') == 'vlan':
+            try:
+                vlan_id = int(name.rsplit('.', 1)[1])
+            except (IndexError, ValueError):
+                pass
+
+        bridge_ports = [
+            value
+            for value in str(
+                raw.get('bridge_ports') or ''
+            ).split()
+            if value
+        ]
+
+        discovered.append(
+            DiscoveredHostInterface(
+                name=name,
+                interface_type=raw.get('type'),
+                active=str(raw.get('active', 0)) == '1',
+                autostart=str(
+                    raw.get('autostart', 0)
+                ) == '1',
+                method=raw.get('method'),
+                addresses=addresses,
+                gateway=raw.get('gateway'),
+                bridge_ports=bridge_ports,
+                vlan_id=vlan_id,
+                vlan_aware=(
+                    str(
+                        raw.get(
+                            'bridge_vlan_aware',
+                            0,
+                        )
+                    ) == '1'
+                ),
+                comments=raw.get('comments'),
+            )
+        )
+
+    return discovered
 
 def discover_hosts(pve_api) -> list[DiscoveredHost]:
     cluster_status = pve_api.cluster.status.get()
@@ -92,6 +160,7 @@ def discover_hosts(pve_api) -> list[DiscoveredHost]:
                     pve_api,
                     node_name,
                 ),
+                interfaces=_discover_host_interfaces(pve_api, node_name),
             )
         )
 

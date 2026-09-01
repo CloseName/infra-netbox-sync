@@ -33,6 +33,21 @@ class DiscoveredCPU:
 
 
 @dataclass
+class DiscoveredHostInterface:
+    name: str
+    interface_type: str | None = None
+    active: bool = False
+    autostart: bool = False
+    method: str | None = None
+    addresses: list[str] = field(default_factory=list)
+    gateway: str | None = None
+    bridge_ports: list[str] = field(default_factory=list)
+    vlan_id: int | None = None
+    vlan_aware: bool = False
+    comments: str | None = None
+
+
+@dataclass
 class DiscoveredHost:
     source: str
     source_id: str
@@ -50,6 +65,7 @@ class DiscoveredHost:
 
     disks: list[DiscoveredDisk] = field(default_factory=list)
     storages: list[DiscoveredStorage] = field(default_factory=list)
+    interfaces: list[DiscoveredHostInterface] = field(default_factory=list)
     virtual_machines: list['DiscoveredVirtualMachine'] = field(default_factory=list)
     containers: list['DiscoveredContainer'] = field(default_factory=list)
 
