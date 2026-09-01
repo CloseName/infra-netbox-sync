@@ -16,6 +16,7 @@ from .proxmox_discovery import discover_hosts
 from .netbox_planner import NetBoxTargetConfig, plan_hosts
 from .netbox_apply import apply_hosts
 from .netbox_vm_apply import apply_virtual_machines
+from .netbox_vm_network_apply import apply_vm_networks
 
 
 VALID_SYNC_MODES = {'inventory', 'plan', 'apply'}
@@ -825,10 +826,12 @@ def main():
         if apply_scope not in {
             'host',
             'vm',
+            'vm-network',
         }:
             raise SystemExit(
                 'SYNC_MODE=apply requires '
-                'APPLY_SCOPE=host or vm. '
+                'APPLY_SCOPE=host, vm, '
+                'or vm-network. '
                 'No changes were written.'
             )
 
@@ -908,6 +911,21 @@ def main():
                         'APPLY_CONFIRM',
                         ''
                     ) == 'VM_WRITE'
+                ),
+            )
+            return
+
+        if apply_scope == 'vm-network':
+            apply_vm_networks(
+                nb_api,
+                hosts,
+                target_config,
+                confirmed=(
+                    os.getenv(
+                        'APPLY_CONFIRM',
+                        ''
+                    )
+                    == 'VM_NETWORK_WRITE'
                 ),
             )
             return
