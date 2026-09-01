@@ -84,7 +84,216 @@ def discover_hosts(pve_api) -> list[DiscoveredHost]:
                 memory_bytes=int(memory.get('total', 0)),
                 disks=disks,
                 storages=storages,
+                virtual_machines=_discover_virtual_machines(
+                    pve_api,
+                    node_name,
+                ),
             )
         )
 
     return hosts
+
+
+def _parse_config_definition(raw_value: str) -> dict:
+    result = {}
+
+    for component in str(raw_value).split(','):
+        if '=' in component:
+            key, value = component.split('=', 1)
+            result[key] = value
+        elif ':' in component and 'storage' not in result:
+            storage, value = component.split(':', 1)
+            result['storage'] = storage
+            result['volume'] = value
+
+    return result
+
+
+def _parse_size_bytes(raw_size: str) -> int:
+    if not raw_size:
+        return 0
+
+    raw_size = str(raw_size).strip().upper()
+
+    units = {
+        'K': 1024,
+        'M': 1024 ** 2,
+        'G': 1024 ** 3,
+        'T': 1024 ** 4,
+    }
+
+    suffix = raw_size[-1]
+
+    try:
+        if suffix in units:
+            return int(float(raw_size[:-1]) * units[suffix])
+
+        return int(raw_size)
+    except ValueError:
+        return 0
+
+
+def _discover_virtual_machines(pve_api, node_name: str):
+    from proxmoxer import ResourceException
+
+    from .discovery import (
+        DiscoveredInterface,
+        DiscoveredVirtualDisk,
+        DiscoveredVirtualMachine,
+    )
+
+    discovered_vms = []
+
+    for vm in pve_api.nodes(node_name).qemu.get():
+        vmid = int(vm['vmid'])
+        config = pve_api.nodes(node_name).qemu(vmid).config.get()
+
+        sockets = int(config.get('sockets', 1))
+        cores = int(config.get('cores', 1))
+        vcpus = int(config.get('vcpus', sockets * cores))
+
+        memory_mib = int(config.get('memory', 0))
+
+        interfaces = []
+
+        agent_by_mac = {}
+
+        try:
+            agent_result = (
+                pve_api.nodes(node_name)
+                .qemu(vmid)
+                .agent('network-get-interfaces')
+                .get()
+            )
+
+            for agent_interface in agent_result.get('result', []):
+                mac = str(
+                    agent_interface.get('hardware-address', '')
+                ).lower()
+
+                if not mac:
+                    continue
+
+                ips = []
+
+                for ip in agent_interface.get('ip-addresses', []):
+                    address = ip.get('ip-address')
+                    prefix = ip.get('prefix')
+
+                    if not address:
+                        continue
+
+                    if ':' in address:
+                        continue
+
+                    if address.startswith('127.'):
+                        continue
+
+                    if prefix is not None:
+                        ips.append(f'{address}/{prefix}')
+                    else:
+                        ips.append(address)
+
+                agent_by_mac[mac] = ips
+
+        except ResourceException:
+            pass
+
+        for key, raw_value in config.items():
+            if not str(key).startswith('net'):
+                continue
+
+            definition = _parse_config_definition(raw_value)
+
+            mac = None
+
+            for model in ('virtio', 'e1000', 'rtl8139', 'vmxnet3'):
+                if model in definition:
+                    mac = definition[model]
+                    break
+
+            vlan_id = None
+            if definition.get('tag') not in (None, ''):
+                try:
+                    vlan_id = int(definition['tag'])
+                except ValueError:
+                    pass
+
+            interfaces.append(
+                DiscoveredInterface(
+                    name=str(key),
+                    mac_address=mac,
+                    bridge=definition.get('bridge'),
+                    vlan_id=vlan_id,
+                    ip_addresses=agent_by_mac.get(
+                        str(mac).lower(), []
+                    ) if mac else [],
+                )
+            )
+
+        disks = []
+
+        for key, raw_value in config.items():
+            key = str(key)
+
+            if not key.startswith(
+                ('scsi', 'virtio', 'sata', 'ide')
+            ):
+                continue
+
+            if key in ('scsihw',):
+                continue
+
+            definition = _parse_config_definition(raw_value)
+
+            # ISO/CD-ROM devices are not VM disks.
+            if definition.get('media') == 'cdrom':
+                continue
+
+            if str(raw_value).strip().lower() == 'none':
+                continue
+
+            size_bytes = _parse_size_bytes(
+                definition.get('size', '')
+            )
+
+            storage = definition.get('storage')
+
+            if storage is None:
+                raw_first = str(raw_value).split(',', 1)[0]
+                if ':' in raw_first:
+                    storage = raw_first.split(':', 1)[0]
+
+            disks.append(
+                DiscoveredVirtualDisk(
+                    name=key,
+                    storage=storage,
+                    size_bytes=size_bytes,
+                )
+            )
+
+        original_name = str(
+            vm.get('name', f'vm-{vmid}')
+        )
+
+        discovered_vms.append(
+            DiscoveredVirtualMachine(
+                source='proxmox',
+                source_id=f'proxmox:{node_name}:{vmid}',
+                node_source_id=node_name,
+                vmid=vmid,
+                original_name=original_name,
+
+                # Naming policy will be implemented separately.
+                normalized_name=original_name,
+
+                status=str(vm.get('status', 'unknown')),
+                vcpus=vcpus,
+                memory_bytes=memory_mib * 1024 ** 2,
+                autostart=str(config.get('onboot', '0')) == '1',
+                disks=disks,
+                interfaces=interfaces,
+            )
+        )
+
+    return discovered_vms

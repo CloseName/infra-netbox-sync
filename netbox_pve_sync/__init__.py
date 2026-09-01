@@ -135,6 +135,44 @@ def _run_inventory(_pve_api: ProxmoxAPI, _nb_objects: dict) -> None:
                 f'active={storage.active}'
             )
 
+        print(f'  virtual_machines:   {len(host.virtual_machines)}')
+
+        for vm in sorted(
+                host.virtual_machines,
+                key=lambda item: item.vmid
+        ):
+            print(
+                f'    VM vmid={vm.vmid} '
+                f'source_id={vm.source_id} '
+                f'name={vm.original_name} '
+                f'status={vm.status} '
+                f'vcpus={vm.vcpus} '
+                f'memory_mib={vm.memory_bytes // 1024**2} '
+                f'autostart={vm.autostart}'
+            )
+
+            for disk in vm.disks:
+                print(
+                    f'      DISK name={disk.name} '
+                    f'storage={disk.storage or "-"} '
+                    f'size_gib={disk.size_bytes / 1024**3:.2f}'
+                )
+
+            for interface in vm.interfaces:
+                addresses = (
+                    ','.join(interface.ip_addresses)
+                    if interface.ip_addresses
+                    else '-'
+                )
+
+                print(
+                    f'      NIC name={interface.name} '
+                    f'mac={interface.mac_address or "-"} '
+                    f'bridge={interface.bridge or "-"} '
+                    f'vlan={interface.vlan_id if interface.vlan_id is not None else "-"} '
+                    f'ips={addresses}'
+                )
+
         print()
 
 
