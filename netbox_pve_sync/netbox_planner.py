@@ -10,6 +10,10 @@ from .netbox_metadata import (
     matches_sync_identity,
 )
 
+from .netbox_vm_planner import (
+    plan_virtual_machines,
+)
+
 
 @dataclass
 class NetBoxTargetConfig:
@@ -755,6 +759,12 @@ def plan_hosts(
         print(
             f'  GUESTS qemu={len(host.virtual_machines)} '
             f'lxc={len(host.containers)}'
+        )
+
+        plan_virtual_machines(
+            nb_api,
+            host,
+            cluster,
         )
 
         print()
