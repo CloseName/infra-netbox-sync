@@ -16,6 +16,29 @@ from proxmoxer import ProxmoxAPI, ResourceException
 VALID_SYNC_MODES = {'inventory', 'apply'}
 
 
+def _read_secret(variable_name: str) -> str:
+    file_variable_name = f'{variable_name}_FILE'
+    file_path = os.getenv(file_variable_name)
+
+    if file_path:
+        try:
+            with open(file_path, 'r', encoding='utf-8') as secret_file:
+                value = secret_file.read().strip()
+        except OSError as exc:
+            raise RuntimeError(
+                f'Unable to read secret file configured by {file_variable_name}'
+            ) from exc
+    else:
+        value = os.getenv(variable_name, '').strip()
+
+    if not value:
+        raise RuntimeError(
+            f'Missing required secret: set {variable_name} or {file_variable_name}'
+        )
+
+    return value
+
+
 def _get_sync_mode() -> str:
     sync_mode = os.getenv('SYNC_MODE', 'inventory').strip().lower()
 
@@ -481,15 +504,15 @@ def main():
     pve_api = ProxmoxAPI(
         host=os.environ['PVE_API_HOST'],
         user=os.environ['PVE_API_USER'],
-        token_name=os.environ['PVE_API_TOKEN'],
-        token_value=os.environ['PVE_API_SECRET'],
+        token_name=_read_secret('PVE_API_TOKEN'),
+        token_value=_read_secret('PVE_API_SECRET'),
         verify_ssl=os.getenv('PVE_API_VERIFY_SSL', 'false').lower() == 'true',
     )
 
     # Instantiate connection to the Netbox API
     nb_api = pynetbox.api(
         url=os.environ['NB_API_URL'],
-        token=os.environ['NB_API_TOKEN'],
+        token=_read_secret('NB_API_TOKEN'),
     )
 
     # Load NetBox objects
