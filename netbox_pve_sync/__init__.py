@@ -13,6 +13,67 @@ import urllib3
 from proxmoxer import ProxmoxAPI, ResourceException
 
 
+VALID_SYNC_MODES = {'inventory', 'apply'}
+
+
+def _get_sync_mode() -> str:
+    sync_mode = os.getenv('SYNC_MODE', 'inventory').strip().lower()
+
+    if sync_mode not in VALID_SYNC_MODES:
+        print(
+            f'Invalid SYNC_MODE="{sync_mode}". '
+            f'Allowed values: {", ".join(sorted(VALID_SYNC_MODES))}.'
+        )
+        sys.exit(2)
+
+    return sync_mode
+
+
+def _run_inventory(_pve_api: ProxmoxAPI, _nb_objects: dict) -> None:
+    """
+    Read-only inventory mode.
+
+    This function only reads data from Proxmox and NetBox.
+    It must not create, update or delete any NetBox objects.
+    """
+
+    print('=== SAFE INVENTORY MODE ===')
+    print('No changes will be written to NetBox.')
+    print()
+
+    print('NetBox inventory:')
+    print(f'  Devices:          {len(_nb_objects["devices"])}')
+    print(f'  Virtual machines: {len(_nb_objects["virtual_machines"])}')
+    print(f'  IP addresses:     {len(_nb_objects["ip_addresses"])}')
+    print(f'  Prefixes:         {len(_nb_objects["prefixes"])}')
+    print(f'  VLANs:            {len(_nb_objects["vlans"])}')
+    print()
+
+    pve_nodes = _pve_api.nodes.get()
+    pve_virtual_machines = _pve_api.cluster.resources.get(type='vm')
+
+    print(f'Proxmox nodes: {len(pve_nodes)}')
+    for pve_node in pve_nodes:
+        print(
+            f'  node={pve_node.get("node")} '
+            f'status={pve_node.get("status", "unknown")}'
+        )
+
+    print()
+    print(f'Proxmox virtual machines: {len(pve_virtual_machines)}')
+
+    for pve_vm in sorted(
+            pve_virtual_machines,
+            key=lambda vm: (str(vm.get('node', '')), str(vm.get('vmid', '')))
+    ):
+        print(
+            f'  vmid={pve_vm.get("vmid")} '
+            f'name={pve_vm.get("name", "-")} '
+            f'node={pve_vm.get("node", "-")} '
+            f'status={pve_vm.get("status", "unknown")}'
+        )
+
+
 def _load_nb_objects(_nb_api: pynetbox.api) -> dict:
     _nb_objects = {
         'devices': {},
@@ -413,6 +474,9 @@ def main():
     netbox-pve-sync main entrypoint
     """
 
+    sync_mode = _get_sync_mode()
+    print(f'SYNC_MODE={sync_mode}')
+
     # Instantiate connection to the Proxmox VE API
     pve_api = ProxmoxAPI(
         host=os.environ['PVE_API_HOST'],
@@ -430,6 +494,16 @@ def main():
 
     # Load NetBox objects
     nb_objects = _load_nb_objects(nb_api)
+
+    if sync_mode == 'inventory':
+        _run_inventory(
+            pve_api,
+            nb_objects,
+        )
+        return
+
+    print('=== APPLY MODE ===')
+    print('WARNING: changes to NetBox are enabled.')
 
     # Process Proxmox tags
     _process_pve_tags(
