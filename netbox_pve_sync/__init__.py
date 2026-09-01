@@ -13,6 +13,7 @@ import urllib3
 from proxmoxer import ProxmoxAPI, ResourceException
 
 from .proxmox_discovery import discover_hosts
+from .netbox_planner import NetBoxTargetConfig, plan_hosts
 
 
 VALID_SYNC_MODES = {'inventory', 'plan', 'apply'}
@@ -788,9 +789,22 @@ def main():
         return
 
     if sync_mode == 'plan':
-        _run_plan(
-            pve_api,
+        hosts = discover_hosts(pve_api)
+
+        target_config = NetBoxTargetConfig(
+            site_slug=os.environ['NB_SITE_SLUG'],
+            device_role_slug=os.environ['NB_DEVICE_ROLE_SLUG'],
+            platform_slug=os.environ['NB_PLATFORM_SLUG'],
+            device_type_slug=os.environ['NB_DEVICE_TYPE_SLUG'],
+            cluster_type_slug=os.environ['NB_CLUSTER_TYPE_SLUG'],
+            cluster_name=os.environ['NB_CLUSTER_NAME'],
+        )
+
+        plan_hosts(
+            nb_api,
             nb_objects,
+            hosts,
+            target_config,
         )
         return
 
