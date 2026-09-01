@@ -806,10 +806,35 @@ def main():
         verify_ssl=os.getenv('PVE_API_VERIFY_SSL', 'false').lower() == 'true',
     )
 
-    # Instantiate connection to the Netbox API
+    # Select the NetBox token by synchronization mode.
+    #
+    # inventory / plan:
+    #   read-only token
+    #
+    # apply:
+    #   dedicated write-enabled token, available only through
+    #   the explicit apply compose override.
+    if sync_mode == 'apply':
+        apply_scope = os.getenv(
+            'APPLY_SCOPE',
+            '',
+        ).strip().lower()
+
+        if apply_scope != 'host':
+            raise SystemExit(
+                'SYNC_MODE=apply requires '
+                'APPLY_SCOPE=host. '
+                'No changes were written.'
+            )
+
+        nb_token_variable = 'NB_APPLY_API_TOKEN'
+    else:
+        nb_token_variable = 'NB_API_TOKEN'
+
+    # Instantiate connection to the NetBox API
     nb_api = pynetbox.api(
         url=os.environ['NB_API_URL'],
-        token=_read_secret('NB_API_TOKEN'),
+        token=_read_secret(nb_token_variable),
     )
 
     # Load NetBox objects
@@ -840,6 +865,15 @@ def main():
             hosts,
             target_config,
         )
+        return
+
+    if sync_mode == 'apply':
+        print('=== SAFE HOST APPLY GATE ===')
+        print(
+            'Dedicated apply token authenticated, '
+            'but Host Apply is not implemented yet.'
+        )
+        print('No changes will be written to NetBox.')
         return
 
     print('=== APPLY MODE ===')
