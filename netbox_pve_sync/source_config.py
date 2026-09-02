@@ -1,5 +1,6 @@
 """Immutable configuration models for one infrastructure source."""
 
+import os
 import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -19,6 +20,47 @@ def _require_text(value: str, field_name: str) -> None:
         raise ValueError(
             f'{field_name} must be a non-empty string'
         )
+
+
+def _required_environment(environ, variable_name: str) -> str:
+    value = environ.get(variable_name, '').strip()
+
+    if not value:
+        raise ValueError(
+            f'{variable_name} must be configured'
+        )
+
+    return value
+
+
+def _environment_flag(environ, variable_name: str, default: str) -> bool:
+    return (
+        environ.get(variable_name, default)
+        .strip()
+        .lower()
+        == 'true'
+    )
+
+
+def _legacy_secret_reference(environ, variable_name: str):
+    file_variable = f'{variable_name}_FILE'
+    file_path = environ.get(file_variable, '').strip()
+
+    if file_path:
+        return SecretReference(
+            provider='file',
+            key=file_path,
+        )
+
+    if environ.get(variable_name, '').strip():
+        return SecretReference(
+            provider='environment',
+            key=variable_name,
+        )
+
+    raise ValueError(
+        f'{variable_name} or {file_variable} must be configured'
+    )
 
 
 @dataclass(frozen=True)
@@ -134,4 +176,102 @@ class SourceConfig:
             self,
             'settings',
             MappingProxyType(dict(self.settings)),
+        )
+
+    @classmethod
+    def from_legacy_environment(cls, environ=None):
+        """Build the single source represented by legacy environment variables."""
+
+        if environ is None:
+            environ = os.environ
+
+        source_instance = _required_environment(
+            environ,
+            'SOURCE_INSTANCE',
+        )
+
+        try:
+            sync_interval_seconds = int(
+                environ.get(
+                    'SOURCE_SYNC_INTERVAL_SECONDS',
+                    '600',
+                )
+            )
+        except ValueError as exc:
+            raise ValueError(
+                'SOURCE_SYNC_INTERVAL_SECONDS must be an integer'
+            ) from exc
+
+        return cls(
+            id=(
+                environ.get('SOURCE_ID', '').strip()
+                or source_instance
+            ),
+            source_instance=source_instance,
+            name=(
+                environ.get('SOURCE_NAME', '').strip()
+                or source_instance
+            ),
+            source_type='proxmox',
+            address=_required_environment(
+                environ,
+                'PVE_API_HOST',
+            ),
+            enabled=_environment_flag(
+                environ,
+                'SOURCE_ENABLED',
+                'true',
+            ),
+            sync_enabled=_environment_flag(
+                environ,
+                'SOURCE_SYNC_ENABLED',
+                'true',
+            ),
+            sync_interval_seconds=sync_interval_seconds,
+            verify_ssl=_environment_flag(
+                environ,
+                'PVE_API_VERIFY_SSL',
+                'false',
+            ),
+            target=NetBoxTargetConfig(
+                site_slug=_required_environment(
+                    environ,
+                    'NB_SITE_SLUG',
+                ),
+                device_role_slug=_required_environment(
+                    environ,
+                    'NB_DEVICE_ROLE_SLUG',
+                ),
+                platform_slug=_required_environment(
+                    environ,
+                    'NB_PLATFORM_SLUG',
+                ),
+                device_type_slug=_required_environment(
+                    environ,
+                    'NB_DEVICE_TYPE_SLUG',
+                ),
+                cluster_type_slug=_required_environment(
+                    environ,
+                    'NB_CLUSTER_TYPE_SLUG',
+                ),
+                cluster_name=_required_environment(
+                    environ,
+                    'NB_CLUSTER_NAME',
+                ),
+            ),
+            credentials=SourceCredentials(
+                username=_required_environment(
+                    environ,
+                    'PVE_API_USER',
+                ),
+                token_id=_legacy_secret_reference(
+                    environ,
+                    'PVE_API_TOKEN',
+                ),
+                token_secret=_legacy_secret_reference(
+                    environ,
+                    'PVE_API_SECRET',
+                ),
+            ),
+            settings={},
         )

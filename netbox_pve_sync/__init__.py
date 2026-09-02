@@ -13,7 +13,8 @@ import urllib3
 from proxmoxer import ProxmoxAPI, ResourceException
 
 from .proxmox_discovery import discover_hosts
-from .netbox_planner import NetBoxTargetConfig, plan_hosts
+from .netbox_planner import plan_hosts
+from .source_config import SourceConfig
 from .netbox_apply import apply_hosts
 from .netbox_vm_apply import apply_virtual_machines
 from .netbox_vm_network_apply import apply_vm_networks
@@ -801,15 +802,19 @@ def main():
     sync_mode = _get_sync_mode()
     print(f'SYNC_MODE={sync_mode}')
 
+    source_config = (
+        SourceConfig.from_legacy_environment()
+    )
+
     # Instantiate connection to the Proxmox VE API
-    pve_user = os.environ['PVE_API_USER'].strip()
+    pve_user = source_config.credentials.username
 
     pve_api = ProxmoxAPI(
-        host=os.environ['PVE_API_HOST'],
+        host=source_config.address,
         user=pve_user,
         token_name=_get_pve_token_name(pve_user),
         token_value=_read_secret('PVE_API_SECRET'),
-        verify_ssl=os.getenv('PVE_API_VERIFY_SSL', 'false').lower() == 'true',
+        verify_ssl=source_config.verify_ssl,
     )
 
     # Select the NetBox token by synchronization mode.
@@ -865,14 +870,7 @@ def main():
     if sync_mode == 'plan':
         hosts = discover_hosts(pve_api)
 
-        target_config = NetBoxTargetConfig(
-            site_slug=os.environ['NB_SITE_SLUG'],
-            device_role_slug=os.environ['NB_DEVICE_ROLE_SLUG'],
-            platform_slug=os.environ['NB_PLATFORM_SLUG'],
-            device_type_slug=os.environ['NB_DEVICE_TYPE_SLUG'],
-            cluster_type_slug=os.environ['NB_CLUSTER_TYPE_SLUG'],
-            cluster_name=os.environ['NB_CLUSTER_NAME'],
-        )
+        target_config = source_config.target
 
         plan_hosts(
             nb_api,
@@ -885,14 +883,7 @@ def main():
     if sync_mode == 'apply':
         hosts = discover_hosts(pve_api)
 
-        target_config = NetBoxTargetConfig(
-            site_slug=os.environ['NB_SITE_SLUG'],
-            device_role_slug=os.environ['NB_DEVICE_ROLE_SLUG'],
-            platform_slug=os.environ['NB_PLATFORM_SLUG'],
-            device_type_slug=os.environ['NB_DEVICE_TYPE_SLUG'],
-            cluster_type_slug=os.environ['NB_CLUSTER_TYPE_SLUG'],
-            cluster_name=os.environ['NB_CLUSTER_NAME'],
-        )
+        target_config = source_config.target
 
         if apply_scope == 'host':
             apply_hosts(

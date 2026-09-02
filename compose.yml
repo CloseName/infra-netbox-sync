@@ -8,6 +8,7 @@ services:
 
     environment:
       SYNC_MODE: inventory
+      SOURCE_INSTANCE: ${SOURCE_INSTANCE:-pve-infra-test}
 
       PVE_API_HOST: ${PVE_API_HOST:?PVE_API_HOST is required}
       PVE_API_USER: ${PVE_API_USER:?PVE_API_USER is required}
