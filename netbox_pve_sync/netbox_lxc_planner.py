@@ -3,7 +3,7 @@ import json
 from .netbox_lxc_metadata import (
     MANAGED_LXC_CUSTOM_FIELDS,
     build_lxc_custom_fields,
-    matches_lxc_sync_identity,
+    find_lxc_sync_identity_matches,
     lxc_identity_source_id,
 )
 
@@ -60,21 +60,9 @@ def plan_lxc_containers(
         host.containers,
         key=lambda item: item.vmid,
     ):
-        identity_matches = []
-
-        for candidate in existing_vms:
-            if matches_lxc_sync_identity(
-                getattr(
-                    candidate,
-                    'custom_fields',
-                    None,
-                )
-                or {},
-                container,
-            ):
-                identity_matches.append(
-                    candidate
-                )
+        identity_matches = find_lxc_sync_identity_matches(
+            existing_vms, container,
+        )
 
         if len(identity_matches) > 1:
             counters[

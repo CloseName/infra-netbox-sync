@@ -8,7 +8,7 @@ from .source_config import NetBoxTargetConfig
 from .netbox_metadata import (
     MANAGED_DEVICE_CUSTOM_FIELDS,
     build_device_custom_fields,
-    matches_sync_identity,
+    find_sync_identity_matches,
 )
 
 from .netbox_vm_planner import (
@@ -42,25 +42,9 @@ def _find_device_match(nb_objects: dict, host):
       3. normalized device name
     """
 
-    identity_matches = []
-
-    for device in nb_objects['devices'].values():
-        custom_fields = (
-            getattr(
-                device,
-                'custom_fields',
-                None,
-            )
-            or {}
-        )
-
-        if matches_sync_identity(
-            custom_fields,
-            host,
-        ):
-            identity_matches.append(
-                device
-            )
+    identity_matches = find_sync_identity_matches(
+        nb_objects['devices'].values(), host,
+    )
 
     if len(identity_matches) > 1:
         raise RuntimeError(

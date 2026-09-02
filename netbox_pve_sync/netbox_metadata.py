@@ -15,6 +15,7 @@ from .source_identity import (
     host_source_identity,
     merge_original_name,
     merge_source_identities,
+    select_best_identity_matches,
     source_identity_match_rank,
 )
 
@@ -23,12 +24,29 @@ def matches_sync_identity(
         custom_fields,
         host,
 ):
-    return bool(source_identity_match_rank(
+    return bool(sync_identity_match_rank(custom_fields, host))
+
+
+def sync_identity_match_rank(custom_fields, host):
+    """Return the centralized v2/v1 match priority for one host."""
+
+    return source_identity_match_rank(
         custom_fields,
         host_source_identity(host),
         (host.source_id,),
         host.legacy_identity_owner,
-    ))
+    )
+
+
+def find_sync_identity_matches(candidates, host):
+    """Find best-ranked host records, retaining same-rank duplicates."""
+
+    return select_best_identity_matches(
+        candidates,
+        lambda candidate: sync_identity_match_rank(
+            getattr(candidate, 'custom_fields', None) or {}, host,
+        ),
+    )
 
 
 def build_device_custom_fields(

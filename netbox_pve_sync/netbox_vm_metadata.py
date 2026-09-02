@@ -7,6 +7,7 @@ from .source_identity import (
     merge_original_name,
     merge_source_identities,
     qemu_source_identity,
+    select_best_identity_matches,
     source_identity_match_rank,
 )
 
@@ -36,13 +37,30 @@ def matches_vm_sync_identity(
         custom_fields,
         vm,
 ):
+    return bool(vm_sync_identity_match_rank(custom_fields, vm))
+
+
+def vm_sync_identity_match_rank(custom_fields, vm):
+    """Return the centralized v2/v1 match priority for one VM."""
+
     wanted_id = vm_identity_source_id(vm)
-    return bool(source_identity_match_rank(
+    return source_identity_match_rank(
         custom_fields,
         qemu_source_identity(vm),
         (wanted_id, vm.source_id),
         vm.legacy_identity_owner,
-    ))
+    )
+
+
+def find_vm_sync_identity_matches(candidates, vm):
+    """Find best-ranked VM records, retaining same-rank duplicates."""
+
+    return select_best_identity_matches(
+        candidates,
+        lambda candidate: vm_sync_identity_match_rank(
+            getattr(candidate, 'custom_fields', None) or {}, vm,
+        ),
+    )
 
 
 def build_vm_custom_fields(

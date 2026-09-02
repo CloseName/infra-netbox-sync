@@ -11,6 +11,7 @@ from .source_identity import (
     lxc_source_identity,
     merge_original_name,
     merge_source_identities,
+    select_best_identity_matches,
     source_identity_match_rank,
 )
 
@@ -36,12 +37,29 @@ def matches_lxc_sync_identity(
         custom_fields,
         container,
 ):
-    return bool(source_identity_match_rank(
+    return bool(lxc_sync_identity_match_rank(custom_fields, container))
+
+
+def lxc_sync_identity_match_rank(custom_fields, container):
+    """Return the centralized v2/v1 match priority for one LXC."""
+
+    return source_identity_match_rank(
         custom_fields,
         lxc_source_identity(container),
         (lxc_identity_source_id(container),),
         container.legacy_identity_owner,
-    ))
+    )
+
+
+def find_lxc_sync_identity_matches(candidates, container):
+    """Find best-ranked LXC records, retaining same-rank duplicates."""
+
+    return select_best_identity_matches(
+        candidates,
+        lambda candidate: lxc_sync_identity_match_rank(
+            getattr(candidate, 'custom_fields', None) or {}, container,
+        ),
+    )
 
 
 def build_lxc_custom_fields(

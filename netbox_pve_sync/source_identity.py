@@ -181,3 +181,19 @@ def merge_original_name(custom_fields, desired, original_name):
     result = dict(values)
     result[original_name_key(desired)] = original_name
     return result
+
+
+def select_best_identity_matches(candidates, ranker):
+    """Return all candidates at the best rank, preferring v2 over v1."""
+
+    best_rank = NO_IDENTITY_MATCH
+    matches = []
+    for candidate in candidates:
+        rank = ranker(candidate)
+        if rank > best_rank:
+            best_rank = rank
+            matches = [candidate]
+        elif rank and rank == best_rank:
+            matches.append(candidate)
+
+    return matches

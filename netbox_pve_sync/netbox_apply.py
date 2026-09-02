@@ -3,7 +3,7 @@ import ipaddress
 from .netbox_metadata import (
     MANAGED_DEVICE_CUSTOM_FIELDS,
     build_device_custom_fields,
-    matches_sync_identity,
+    find_sync_identity_matches,
 )
 
 
@@ -107,25 +107,7 @@ def _resolve_device(
     )
 
     # 1. Stable source identity
-    identity_matches = []
-
-    for device in devices:
-        custom_fields = (
-            getattr(
-                device,
-                'custom_fields',
-                None,
-            )
-            or {}
-        )
-
-        if matches_sync_identity(
-            custom_fields,
-            host,
-        ):
-            identity_matches.append(
-                device
-            )
+    identity_matches = find_sync_identity_matches(devices, host)
 
     if len(identity_matches) > 1:
         raise HostApplyError(

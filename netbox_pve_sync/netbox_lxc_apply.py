@@ -1,7 +1,7 @@
 from .netbox_lxc_metadata import (
     MANAGED_LXC_CUSTOM_FIELDS,
     build_lxc_custom_fields,
-    matches_lxc_sync_identity,
+    find_lxc_sync_identity_matches,
 )
 
 
@@ -95,19 +95,7 @@ def _find_identity_matches(
     all_vms,
     container,
 ):
-    return [
-        vm
-        for vm in all_vms
-        if matches_lxc_sync_identity(
-            getattr(
-                vm,
-                'custom_fields',
-                None,
-            )
-            or {},
-            container,
-        )
-    ]
+    return find_lxc_sync_identity_matches(all_vms, container)
 
 
 def _changes(

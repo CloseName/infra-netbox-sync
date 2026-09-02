@@ -3,7 +3,7 @@ import json
 from .netbox_vm_metadata import (
     MANAGED_VM_CUSTOM_FIELDS,
     build_vm_custom_fields,
-    matches_vm_sync_identity,
+    find_vm_sync_identity_matches,
     vm_identity_source_id,
 )
 
@@ -60,25 +60,9 @@ def _find_vm_match(
       4. duplicates -> CONFLICT
     """
 
-    identity_matches = []
-
-    for candidate in existing_vms:
-        custom_fields = (
-            getattr(
-                candidate,
-                'custom_fields',
-                None,
-            )
-            or {}
-        )
-
-        if matches_vm_sync_identity(
-            custom_fields,
-            discovered_vm,
-        ):
-            identity_matches.append(
-                candidate
-            )
+    identity_matches = find_vm_sync_identity_matches(
+        existing_vms, discovered_vm,
+    )
 
     if len(identity_matches) > 1:
         return (
