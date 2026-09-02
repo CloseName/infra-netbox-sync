@@ -15,6 +15,7 @@ from proxmoxer import ProxmoxAPI, ResourceException
 from .proxmox_discovery import discover_hosts
 from .netbox_planner import plan_hosts
 from .source_config import SourceConfig
+from .source_bootstrap import load_runtime_source_config
 from .netbox_apply import apply_hosts
 from .netbox_vm_apply import apply_virtual_machines
 from .netbox_vm_network_apply import apply_vm_networks
@@ -810,9 +811,7 @@ def main():
     sync_mode = _get_sync_mode()
     print(f'SYNC_MODE={sync_mode}')
 
-    source_config = (
-        SourceConfig.from_legacy_environment()
-    )
+    source_config = load_runtime_source_config()
 
     # Instantiate connection to the Proxmox VE API
     pve_user = source_config.credentials.username
