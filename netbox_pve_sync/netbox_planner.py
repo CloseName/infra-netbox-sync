@@ -1,8 +1,9 @@
 import ipaddress
 import json
-from dataclasses import dataclass
 
 import pynetbox
+
+from .source_config import NetBoxTargetConfig
 
 from .netbox_metadata import (
     MANAGED_DEVICE_CUSTOM_FIELDS,
@@ -21,17 +22,6 @@ from .netbox_vm_network_planner import (
 from .netbox_lxc_planner import (
     plan_lxc_containers,
 )
-
-
-@dataclass
-class NetBoxTargetConfig:
-    site_slug: str
-    device_role_slug: str
-    platform_slug: str
-    device_type_slug: str
-    cluster_type_slug: str
-    cluster_name: str
-
 
 def _ip_without_prefix(value):
     if not value:
