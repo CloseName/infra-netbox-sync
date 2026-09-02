@@ -9,6 +9,13 @@ from .netbox_lxc_metadata import (
 from .netbox_vm_interface_metadata import (
     nic_identity_source_id,
 )
+from .source_identity import (
+    SourceIdentity,
+    lxc_nic_source_identity,
+    lxc_source_identity,
+    qemu_nic_source_identity,
+    qemu_source_identity,
+)
 
 
 def _local_source_id(obj):
@@ -75,6 +82,28 @@ def _identities(custom_fields):
     return result
 
 
+def _v2_identities(custom_fields):
+    values = dict(custom_fields or {}).get('sync_identities')
+    if not isinstance(values, list):
+        return []
+
+    result = []
+    for value in values:
+        parsed = SourceIdentity.from_record(value)
+        if parsed is not None:
+            result.append(parsed)
+    return result
+
+
+def _identity_label(identity):
+    if isinstance(identity, SourceIdentity):
+        return (
+            f'{identity.type}/{identity.instance}/'
+            f'{identity.kind}/{identity.external_id}'
+        )
+    return f'{identity[0]}:{identity[1]}'
+
+
 def _object_id(value):
     if value is None:
         return None
@@ -136,6 +165,7 @@ def report_missing_managed_objects(
     cluster = clusters[0]
 
     source_scopes = set()
+    source_instances = set()
     discovered_guests = set()
     discovered_interfaces = set()
 
@@ -143,6 +173,7 @@ def report_missing_managed_objects(
         source = str(
             host.source
         )
+        source_instances.add((source, str(host.source_instance)))
 
         host_source_id = (
             _local_source_id(
@@ -150,12 +181,13 @@ def report_missing_managed_objects(
             )
         )
 
-        source_scopes.add(
-            (
-                source,
-                host_source_id + ':',
+        if host.legacy_identity_owner:
+            source_scopes.add(
+                (
+                    source,
+                    host_source_id + ':',
+                )
             )
-        )
 
         for vm in host.virtual_machines:
             guest_identity = (
@@ -168,6 +200,7 @@ def report_missing_managed_objects(
             discovered_guests.add(
                 guest_identity
             )
+            discovered_guests.add(qemu_source_identity(vm))
 
             for nic in vm.interfaces:
                 discovered_interfaces.add(
@@ -179,6 +212,7 @@ def report_missing_managed_objects(
                         ),
                     )
                 )
+                discovered_interfaces.add(qemu_nic_source_identity(vm, nic))
 
         for container in host.containers:
             guest_identity = (
@@ -191,6 +225,7 @@ def report_missing_managed_objects(
             discovered_guests.add(
                 guest_identity
             )
+            discovered_guests.add(lxc_source_identity(container))
 
             for nic in container.interfaces:
                 discovered_interfaces.add(
@@ -204,10 +239,28 @@ def report_missing_managed_objects(
                         ),
                     )
                 )
+                discovered_interfaces.add(
+                    lxc_nic_source_identity(container, nic)
+                )
 
     def managed_identity(
         custom_fields,
     ):
+        v2_matches = [
+            identity
+            for identity in _v2_identities(custom_fields)
+            if (identity.type, identity.instance) in source_instances
+        ]
+
+        if len(v2_matches) > 1:
+            raise RuntimeError(
+                'Object has multiple managed Proxmox v2 identities: '
+                + repr(v2_matches)
+            )
+
+        if v2_matches:
+            return v2_matches[0]
+
         matches = []
 
         for identity in _identities(
@@ -390,14 +443,11 @@ def report_missing_managed_objects(
         vm,
         identity,
     ) in missing_guests:
-        source, source_id = identity
-
         print(
             f'WARNING MISSING GUEST '
             f'id={vm.id} '
             f'name={vm.name!r} '
-            f'identity={source}:'
-            f'{source_id} '
+            f'identity={_identity_label(identity)} '
             f'action=retained'
         )
 
@@ -406,8 +456,6 @@ def report_missing_managed_objects(
         interface,
         identity,
     ) in missing_interfaces:
-        source, source_id = identity
-
         print(
             f'WARNING MISSING INTERFACE '
             f'vm_id={vm.id} '
@@ -416,8 +464,7 @@ def report_missing_managed_objects(
             f'{interface.id} '
             f'name='
             f'{interface.name!r} '
-            f'identity={source}:'
-            f'{source_id} '
+            f'identity={_identity_label(identity)} '
             f'action=retained'
         )
 
