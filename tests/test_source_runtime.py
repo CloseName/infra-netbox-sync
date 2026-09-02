@@ -136,6 +136,28 @@ def test_registry_all_with_no_runnable_sources_fails_closed():
         )
 
 
+def test_registry_all_rejects_multiple_legacy_identity_owners():
+    first = replace(
+        sample_source_config(),
+        id='pve-a',
+        source_instance='pve-a',
+        legacy_identity_owner=True,
+    )
+    second = replace(
+        sample_source_config(),
+        id='pve-b',
+        source_instance='pve-b',
+        legacy_identity_owner=True,
+    )
+    registry = FakeRegistry((first, second))
+
+    with pytest.raises(SourceBootstrapError, match='legacy identity owners'):
+        load_runtime_source_configs(
+            registry_all_environment(),
+            registry_factory=lambda _dsn, _schema: registry,
+        )
+
+
 def test_registry_all_unavailable_fails_before_source_execution():
     def unavailable(_dsn, _schema):
         raise RuntimeError('registry unavailable')

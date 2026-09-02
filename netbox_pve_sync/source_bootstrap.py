@@ -135,6 +135,15 @@ def load_runtime_source_configs(environ=None, registry_factory=None):
     configs = registry.list_runnable_sources()
     if not configs:
         raise SourceBootstrapError('Registry has no runnable sources')
+    legacy_owners = [
+        config.id
+        for config in configs
+        if config.legacy_identity_owner
+    ]
+    if len(legacy_owners) > 1:
+        raise SourceBootstrapError(
+            'Registry has multiple runnable legacy identity owners'
+        )
     return configs
 
 
