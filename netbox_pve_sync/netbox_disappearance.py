@@ -13,8 +13,8 @@ from .source_identity import (
     SourceIdentity,
     lxc_nic_source_identity,
     lxc_source_identity,
-    qemu_nic_source_identity,
-    qemu_source_identity,
+    virtual_machine_nic_source_identity,
+    virtual_machine_source_identity,
 )
 
 
@@ -200,7 +200,7 @@ def report_missing_managed_objects(
             discovered_guests.add(
                 guest_identity
             )
-            discovered_guests.add(qemu_source_identity(vm))
+            discovered_guests.add(virtual_machine_source_identity(vm))
 
             for nic in vm.interfaces:
                 discovered_interfaces.add(
@@ -212,7 +212,9 @@ def report_missing_managed_objects(
                         ),
                     )
                 )
-                discovered_interfaces.add(qemu_nic_source_identity(vm, nic))
+                discovered_interfaces.add(
+                    virtual_machine_nic_source_identity(vm, nic)
+                )
 
         for container in host.containers:
             guest_identity = (

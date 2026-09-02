@@ -5,7 +5,7 @@ from .source_identity import (
     lxc_nic_source_identity,
     merge_original_name,
     merge_source_identities,
-    qemu_nic_source_identity,
+    virtual_machine_nic_source_identity,
     select_best_identity_matches,
     source_identity_match_rank,
 )
@@ -44,7 +44,7 @@ def nic_sync_identity_match_rank(custom_fields, vm, nic):
     builder = (
         lxc_nic_source_identity
         if hasattr(vm, 'architecture')
-        else qemu_nic_source_identity
+        else virtual_machine_nic_source_identity
     )
     return source_identity_match_rank(
         custom_fields,
@@ -77,7 +77,7 @@ def build_nic_custom_fields(
     builder = (
         lxc_nic_source_identity
         if hasattr(vm, 'architecture')
-        else qemu_nic_source_identity
+        else virtual_machine_nic_source_identity
     )
     desired_identity = builder(vm, nic)
     merged_identities = merge_source_identities(existing, desired_identity)

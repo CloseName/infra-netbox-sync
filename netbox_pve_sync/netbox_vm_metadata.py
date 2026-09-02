@@ -6,7 +6,7 @@ MANAGED_VM_CUSTOM_FIELDS = (
 from .source_identity import (
     merge_original_name,
     merge_source_identities,
-    qemu_source_identity,
+    virtual_machine_source_identity,
     select_best_identity_matches,
     source_identity_match_rank,
 )
@@ -46,7 +46,7 @@ def vm_sync_identity_match_rank(custom_fields, vm):
     wanted_id = vm_identity_source_id(vm)
     return source_identity_match_rank(
         custom_fields,
-        qemu_source_identity(vm),
+        virtual_machine_source_identity(vm),
         (wanted_id, vm.source_id),
         vm.legacy_identity_owner,
     )
@@ -71,7 +71,7 @@ def build_vm_custom_fields(
         existing_custom_fields or {}
     )
 
-    desired_identity = qemu_source_identity(vm)
+    desired_identity = virtual_machine_source_identity(vm)
     merged_identities = merge_source_identities(existing, desired_identity)
     merged_original_names = merge_original_name(
         existing, desired_identity, vm.original_name,

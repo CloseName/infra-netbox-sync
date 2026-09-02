@@ -95,6 +95,25 @@ def qemu_nic_source_identity(vm, nic):
     return _identity(vm, 'qemu-nic', f'{vm.vmid}:{nic.name}')
 
 
+def virtual_machine_source_identity(vm):
+    """Build a source-specific VM identity without changing Proxmox v2."""
+
+    if str(vm.source) == 'esxi':
+        external_id = getattr(vm, 'external_id', None) or vm.vmid
+        return _identity(vm, 'vm', external_id)
+    return qemu_source_identity(vm)
+
+
+def virtual_machine_nic_source_identity(vm, nic):
+    """Build a source-specific VM NIC identity with stable ESXi device keys."""
+
+    if str(vm.source) == 'esxi':
+        vm_id = getattr(vm, 'external_id', None) or vm.vmid
+        nic_id = getattr(nic, 'external_id', None) or nic.name
+        return _identity(vm, 'vm-nic', f'{vm_id}:{nic_id}')
+    return qemu_nic_source_identity(vm, nic)
+
+
 def lxc_nic_source_identity(container, nic):
     """Build a node-independent LXC NIC identity."""
 
