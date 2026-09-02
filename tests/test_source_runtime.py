@@ -1,0 +1,137 @@
+"""Runtime source selection and secret-resolution boundary tests."""
+
+from dataclasses import replace
+
+import pytest
+
+from netbox_pve_sync.secret_resolver import (
+    FileSecretResolver,
+    SecretResolutionError,
+)
+from netbox_pve_sync.source_bootstrap import (
+    SourceBootstrapError,
+    load_runtime_source_config,
+    runtime_source_mode,
+)
+from netbox_pve_sync.source_config import SecretReference, SourceConfig
+
+from tests.sample_data import sample_source_config
+from tests.test_source_config import legacy_environment
+
+
+class FakeRegistry:
+    """Minimal read-only registry used by runtime selection tests."""
+
+    def __init__(self, config):
+        self.config = config
+        self.requested_ids = []
+
+    def get_source_config(self, source_id):
+        self.requested_ids.append(source_id)
+        return self.config
+
+
+def registry_environment(**overrides):
+    """Return explicit single-source registry runtime settings."""
+
+    environ = {
+        'SOURCE_CONFIG_MODE': 'registry',
+        'INFRA_SYNC_REGISTRY_DSN': 'postgresql://registry.invalid/test',
+        'INFRA_SYNC_REGISTRY_SCHEMA': 'infra_sync',
+        'SOURCE_ID': 'pve-infra-test',
+    }
+    environ.update(overrides)
+    return environ
+
+
+def test_absent_runtime_mode_preserves_legacy_default():
+    environ = legacy_environment()
+
+    config = load_runtime_source_config(environ)
+
+    assert runtime_source_mode(environ) == 'legacy'
+    assert isinstance(config, SourceConfig)
+    assert config.source_instance == 'pve-infra-test'
+
+
+@pytest.mark.parametrize('value', ('', 'unknown', ' legacy-ish '))
+def test_explicit_invalid_runtime_mode_fails_closed(value):
+    with pytest.raises(SourceBootstrapError, match='SOURCE_CONFIG_MODE'):
+        runtime_source_mode({'SOURCE_CONFIG_MODE': value})
+
+
+@pytest.mark.parametrize(
+    'missing_variable',
+    ('INFRA_SYNC_REGISTRY_DSN', 'INFRA_SYNC_REGISTRY_SCHEMA', 'SOURCE_ID'),
+)
+def test_registry_mode_requires_complete_explicit_selection(missing_variable):
+    environ = registry_environment()
+    environ.pop(missing_variable)
+
+    with pytest.raises(SourceBootstrapError, match=missing_variable):
+        load_runtime_source_config(environ)
+
+
+def test_registry_mode_returns_canonical_source_config():
+    expected = sample_source_config()
+    registry = FakeRegistry(expected)
+    received = []
+
+    def factory(dsn, schema):
+        received.append((dsn, schema))
+        return registry
+
+    config = load_runtime_source_config(
+        registry_environment(),
+        registry_factory=factory,
+    )
+
+    assert config is expected
+    assert isinstance(config, SourceConfig)
+    assert registry.requested_ids == ['pve-infra-test']
+    assert received == [('postgresql://registry.invalid/test', 'infra_sync')]
+
+
+@pytest.mark.parametrize(
+    ('change', 'message'),
+    (
+        ({}, 'was not found'),
+        ({'enabled': False}, 'is disabled'),
+        ({'sync_enabled': False}, 'has sync disabled'),
+    ),
+)
+def test_registry_selection_never_falls_back_to_legacy(change, message):
+    config = None if not change else replace(sample_source_config(), **change)
+    registry = FakeRegistry(config)
+
+    with pytest.raises(SourceBootstrapError, match=message):
+        load_runtime_source_config(
+            registry_environment(),
+            registry_factory=lambda _dsn, _schema: registry,
+        )
+
+
+def test_file_secret_resolver_uses_fixed_root_and_strips_value(tmp_path):
+    (tmp_path / 'proxmox-token').write_text(' token-value\n', encoding='utf-8')
+    resolver = FileSecretResolver(environ={}, secret_root=tmp_path)
+
+    assert resolver.resolve(
+        SecretReference(provider='file', key='proxmox-token')
+    ) == 'token-value'
+
+
+@pytest.mark.parametrize('key', ('../escape', '/absolute/path', r'folder\secret'))
+def test_file_secret_resolver_rejects_paths(key, tmp_path):
+    resolver = FileSecretResolver(environ={}, secret_root=tmp_path)
+
+    with pytest.raises(SecretResolutionError, match='logical name'):
+        resolver.resolve(SecretReference(provider='file', key=key))
+
+
+def test_secret_resolution_errors_do_not_contain_secret_values():
+    resolver = FileSecretResolver(environ={'TOKEN': '  '})
+
+    with pytest.raises(SecretResolutionError) as error:
+        resolver.resolve(SecretReference(provider='env', key='TOKEN'))
+
+    assert 'secret-value' not in str(error.value)
