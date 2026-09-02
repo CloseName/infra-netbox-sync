@@ -178,6 +178,8 @@ class SourceRegistry:
             raise TypeError('source must be a SourceConfig')
         if config.source_type not in SUPPORTED_SOURCE_TYPES:
             raise ValueError(f'unsupported source_type: {config.source_type!r}')
+        if config.source_type == 'esxi' and config.legacy_identity_owner:
+            raise ValueError('ESXi cannot be a legacy identity owner')
         if not isinstance(config.target, NetBoxTargetConfig):
             raise TypeError('target must be NetBoxTargetConfig')
         if not isinstance(config.credentials, SourceCredentials):

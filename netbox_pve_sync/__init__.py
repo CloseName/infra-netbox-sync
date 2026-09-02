@@ -25,6 +25,7 @@ from .source_bootstrap import (
 from .secret_resolver import FileSecretResolver, LegacyFileSecretResolver
 from .orchestrator import run_sources
 from .source_executor import SourceExecutorDispatch
+from .esxi_executor import execute_esxi_source
 from .netbox_apply import apply_hosts
 from .netbox_vm_apply import apply_virtual_machines
 from .netbox_vm_network_apply import apply_vm_networks
@@ -91,9 +92,8 @@ def _get_sync_mode() -> str:
 
 
 def _run_inventory(
-        _pve_api: ProxmoxAPI,
         _nb_objects: dict,
-        source_config: SourceConfig,
+        hosts,
 ) -> None:
     """
     Read-only inventory mode.
@@ -113,11 +113,6 @@ def _run_inventory(
     print(f'  Prefixes:         {len(_nb_objects["prefixes"])}')
     print(f'  VLANs:            {len(_nb_objects["vlans"])}')
     print()
-
-    hosts = discover_hosts(
-        _pve_api,
-        source_config,
-    )
 
     print(f'Discovered infrastructure hosts: {len(hosts)}')
     print()
@@ -837,6 +832,23 @@ def execute_proxmox_source(
         verify_ssl=source_config.verify_ssl,
     )
 
+    hosts = discover_hosts(pve_api, source_config)
+    return execute_discovered_source(
+        source_config,
+        hosts,
+        sync_mode,
+        pve_api=pve_api,
+    )
+
+
+def execute_discovered_source(
+        source_config,
+        hosts,
+        sync_mode,
+        pve_api=None,
+):
+    """Run the shared NetBox pipeline for generic discovered objects."""
+
     # Select the NetBox token by synchronization mode.
     #
     # inventory / plan:
@@ -882,18 +894,12 @@ def execute_proxmox_source(
 
     if sync_mode == 'inventory':
         _run_inventory(
-            pve_api,
             nb_objects,
-            source_config,
+            hosts,
         )
         return
 
     if sync_mode == 'plan':
-        hosts = discover_hosts(
-            pve_api,
-            source_config,
-        )
-
         target_config = source_config.target
 
         plan_hosts(
@@ -905,11 +911,6 @@ def execute_proxmox_source(
         return
 
     if sync_mode == 'apply':
-        hosts = discover_hosts(
-            pve_api,
-            source_config,
-        )
-
         target_config = source_config.target
 
         if apply_scope == 'host':
@@ -1074,6 +1075,20 @@ def _print_multi_source_result(result):
     print(f'failed={result.failed}')
 
 
+def _source_dispatch(sync_mode):
+    return SourceExecutorDispatch({
+        'proxmox': lambda config: execute_proxmox_source(
+            config,
+            sync_mode,
+        ),
+        'esxi': lambda config: execute_esxi_source(
+            config,
+            sync_mode,
+            execute_discovered_source,
+        ),
+    })
+
+
 def main():
     """netbox-pve-sync main entrypoint."""
 
@@ -1082,12 +1097,7 @@ def main():
     source_mode = runtime_source_mode(os.environ)
     if source_mode == REGISTRY_ALL_MODE:
         configs = load_runtime_source_configs()
-        dispatch = SourceExecutorDispatch({
-            'proxmox': lambda config: execute_proxmox_source(
-                config,
-                sync_mode,
-            ),
-        })
+        dispatch = _source_dispatch(sync_mode)
         result = run_sources(configs, dispatch.execute)
         _print_multi_source_result(result)
         if result.failed:
@@ -1095,11 +1105,14 @@ def main():
         return
 
     source_config = load_runtime_source_config()
-    execute_proxmox_source(
-        source_config,
-        sync_mode,
-        legacy_secrets=(source_mode == LEGACY_MODE),
-    )
+    if source_mode == LEGACY_MODE:
+        execute_proxmox_source(
+            source_config,
+            sync_mode,
+            legacy_secrets=True,
+        )
+        return
+    _source_dispatch(sync_mode).execute(source_config)
 
 
 if __name__ == '__main__':
