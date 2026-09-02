@@ -329,6 +329,24 @@ class SourceRegistry:
                 rows = cursor.fetchall()
         return tuple(self._row_to_record(row) for row in rows)
 
+    def list_runnable_sources(self):
+        """List enabled, sync-enabled configs deterministically by source id."""
+
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        'SELECT * FROM {} '
+                        'WHERE enabled = TRUE AND sync_enabled = TRUE '
+                        'ORDER BY id'
+                    ).format(self._table('sources'))
+                )
+                rows = cursor.fetchall()
+        return tuple(
+            self._row_to_record(row).to_source_config()
+            for row in rows
+        )
+
     def get_source_config(self, source_id):
         """Return the existing immutable SourceConfig, or ``None``."""
 
