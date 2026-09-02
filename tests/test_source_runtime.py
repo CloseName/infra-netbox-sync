@@ -11,6 +11,7 @@ from netbox_pve_sync.secret_resolver import (
 from netbox_pve_sync.source_bootstrap import (
     SourceBootstrapError,
     load_runtime_source_config,
+    load_runtime_source_configs,
     runtime_source_mode,
 )
 from netbox_pve_sync.source_config import SecretReference, SourceConfig
@@ -30,6 +31,9 @@ class FakeRegistry:
         self.requested_ids.append(source_id)
         return self.config
 
+    def list_runnable_sources(self):
+        return self.config
+
 
 def registry_environment(**overrides):
     """Return explicit single-source registry runtime settings."""
@@ -40,6 +44,15 @@ def registry_environment(**overrides):
         'INFRA_SYNC_REGISTRY_SCHEMA': 'infra_sync',
         'SOURCE_ID': 'pve-infra-test',
     }
+    environ.update(overrides)
+    return environ
+
+
+def registry_all_environment(**overrides):
+    """Return explicit multi-source registry runtime settings."""
+
+    environ = registry_environment(SOURCE_CONFIG_MODE='registry-all')
+    environ.pop('SOURCE_ID')
     environ.update(overrides)
     return environ
 
@@ -99,6 +112,47 @@ def test_registry_mode_returns_canonical_source_config():
     assert isinstance(config, SourceConfig)
     assert registry.requested_ids == ['pve-infra-test']
     assert received == [('postgresql://registry.invalid/test', 'infra_sync')]
+
+
+def test_registry_all_loads_runnable_sources_without_source_id():
+    expected = (sample_source_config(),)
+    registry = FakeRegistry(expected)
+
+    configs = load_runtime_source_configs(
+        registry_all_environment(),
+        registry_factory=lambda _dsn, _schema: registry,
+    )
+
+    assert configs == expected
+
+
+def test_registry_all_with_no_runnable_sources_fails_closed():
+    registry = FakeRegistry(())
+
+    with pytest.raises(SourceBootstrapError, match='no runnable sources'):
+        load_runtime_source_configs(
+            registry_all_environment(),
+            registry_factory=lambda _dsn, _schema: registry,
+        )
+
+
+def test_registry_all_unavailable_fails_before_source_execution():
+    def unavailable(_dsn, _schema):
+        raise RuntimeError('registry unavailable')
+
+    with pytest.raises(RuntimeError, match='registry unavailable'):
+        load_runtime_source_configs(
+            registry_all_environment(),
+            registry_factory=unavailable,
+        )
+
+
+def test_single_registry_mode_still_requires_source_id():
+    environ = registry_environment()
+    environ.pop('SOURCE_ID')
+
+    with pytest.raises(SourceBootstrapError, match='SOURCE_ID'):
+        load_runtime_source_config(environ)
 
 
 @pytest.mark.parametrize(
