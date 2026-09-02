@@ -3,6 +3,7 @@
 import json
 import os
 from dataclasses import dataclass, fields, replace
+from pathlib import Path
 
 import psycopg
 
@@ -115,7 +116,8 @@ def load_runtime_source_config(environ=None, registry_factory=None):
 
 def _registry_credential_reference(reference):
     provider = 'env' if reference.provider == 'environment' else reference.provider
-    return SecretReference(provider=provider, key=reference.key)
+    key = Path(reference.key).name if provider == 'file' else reference.key
+    return SecretReference(provider=provider, key=key)
 
 
 def registry_compatible_config(config):
@@ -202,6 +204,8 @@ def _assert_matching_identity(existing, candidate):
 def bootstrap_legacy_source(registry, legacy_config, confirmed=False):
     """Plan or apply one legacy source registration; dry-run is the default."""
 
+    if not isinstance(confirmed, bool):
+        raise TypeError('confirmed must be a boolean')
     candidate = registry_compatible_config(legacy_config)
     by_id = registry.get_source(candidate.id)
     by_instance = registry.get_by_source_instance(candidate.source_instance)

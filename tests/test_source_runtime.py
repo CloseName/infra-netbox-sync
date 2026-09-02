@@ -54,6 +54,15 @@ def test_absent_runtime_mode_preserves_legacy_default():
     assert config.source_instance == 'pve-infra-test'
 
 
+def test_explicit_legacy_mode_uses_legacy_source_config():
+    environ = legacy_environment(SOURCE_CONFIG_MODE='legacy')
+
+    config = load_runtime_source_config(environ)
+
+    assert isinstance(config, SourceConfig)
+    assert config.address == 'pve.test.example'
+
+
 @pytest.mark.parametrize('value', ('', 'unknown', ' legacy-ish '))
 def test_explicit_invalid_runtime_mode_fails_closed(value):
     with pytest.raises(SourceBootstrapError, match='SOURCE_CONFIG_MODE'):

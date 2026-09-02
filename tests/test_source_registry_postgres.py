@@ -10,6 +10,7 @@ from psycopg import errors, sql
 from psycopg.conninfo import conninfo_to_dict
 
 from netbox_pve_sync.source_config import SecretReference, SourceCredentials
+from netbox_pve_sync.source_bootstrap import bootstrap_legacy_source
 from netbox_pve_sync.source_registry import (
     SourceConflictError,
     SourceRecord,
@@ -265,3 +266,24 @@ def test_registry_never_resolves_or_persists_secret_values(
     stored = registry.get_source_config(created.id).credentials
     assert stored.token_id.key == 'PVE_REGISTRY_TOKEN_ID'
     assert stored.token_secret.key == 'pve-token-secret'
+
+
+def test_guarded_bootstrap_create_update_and_noop_against_postgres(pg_registry):
+    registry, _ = pg_registry
+    initial = _config(address='old-pve.example')
+
+    dry_create = bootstrap_legacy_source(registry, initial)
+    assert dry_create.created == 1
+    assert registry.list_sources() == ()
+
+    bootstrap_legacy_source(registry, initial, confirmed=True)
+    assert bootstrap_legacy_source(registry, initial).noop == 1
+
+    desired = replace(initial, address='new-pve.example')
+    dry_update = bootstrap_legacy_source(registry, desired)
+    assert dry_update.updated == 1
+    assert registry.get_source_config(initial.id).address == 'old-pve.example'
+
+    bootstrap_legacy_source(registry, desired, confirmed=True)
+    assert registry.get_source_config(initial.id).address == 'new-pve.example'
+    assert bootstrap_legacy_source(registry, desired, confirmed=True).noop == 1
