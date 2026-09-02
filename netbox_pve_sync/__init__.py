@@ -15,7 +15,12 @@ from proxmoxer import ProxmoxAPI, ResourceException
 from .proxmox_discovery import discover_hosts
 from .netbox_planner import plan_hosts
 from .source_config import SourceConfig
-from .source_bootstrap import load_runtime_source_config
+from .source_bootstrap import (
+    LEGACY_MODE,
+    load_runtime_source_config,
+    runtime_source_mode,
+)
+from .secret_resolver import FileSecretResolver, LegacyFileSecretResolver
 from .netbox_apply import apply_hosts
 from .netbox_vm_apply import apply_virtual_machines
 from .netbox_vm_network_apply import apply_vm_networks
@@ -50,9 +55,7 @@ def _read_secret(variable_name: str) -> str:
     return value
 
 
-def _get_pve_token_name(pve_user: str) -> str:
-    token_id = _read_secret('PVE_API_TOKEN')
-
+def _get_pve_token_name(pve_user: str, token_id: str) -> str:
     if '!' not in token_id:
         return token_id
 
@@ -811,16 +814,25 @@ def main():
     sync_mode = _get_sync_mode()
     print(f'SYNC_MODE={sync_mode}')
 
+    source_mode = runtime_source_mode(os.environ)
     source_config = load_runtime_source_config()
+    resolver_class = (
+        LegacyFileSecretResolver
+        if source_mode == LEGACY_MODE
+        else FileSecretResolver
+    )
+    pve_credentials = resolver_class().resolve_credentials(
+        source_config.credentials
+    )
 
     # Instantiate connection to the Proxmox VE API
-    pve_user = source_config.credentials.username
+    pve_user = pve_credentials.username
 
     pve_api = ProxmoxAPI(
         host=source_config.address,
         user=pve_user,
-        token_name=_get_pve_token_name(pve_user),
-        token_value=_read_secret('PVE_API_SECRET'),
+        token_name=_get_pve_token_name(pve_user, pve_credentials.token_id),
+        token_value=pve_credentials.token_secret,
         verify_ssl=source_config.verify_ssl,
     )
 
