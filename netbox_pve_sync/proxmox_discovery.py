@@ -149,6 +149,9 @@ def discover_hosts(pve_api, source_config) -> list[DiscoveredHost]:
                 source_instance=(
                     source_config.source_instance
                 ),
+                legacy_identity_owner=(
+                    source_config.legacy_identity_owner
+                ),
                 source_id=node_name,
                 original_name=node_name,
                 normalized_name=node_name.upper(),
@@ -368,6 +371,9 @@ def _discover_virtual_machines(
                 source_instance=(
                     source_config.source_instance
                 ),
+                legacy_identity_owner=(
+                    source_config.legacy_identity_owner
+                ),
                 source_id=f'proxmox:{node_name}:{vmid}',
                 node_source_id=node_name,
                 vmid=vmid,
@@ -485,6 +491,9 @@ def _discover_containers(
                 source='proxmox',
                 source_instance=(
                     source_config.source_instance
+                ),
+                legacy_identity_owner=(
+                    source_config.legacy_identity_owner
                 ),
                 source_id=f'proxmox:{node_name}:lxc:{vmid}',
                 node_source_id=node_name,

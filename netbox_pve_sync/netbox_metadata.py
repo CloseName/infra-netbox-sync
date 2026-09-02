@@ -11,67 +11,22 @@ MANAGED_DEVICE_CUSTOM_FIELDS = (
     'physical_disks',
 )
 
+from .source_identity import (
+    host_source_identity,
+    source_identity_match_rank,
+)
+
 
 def matches_sync_identity(
         custom_fields,
         host,
 ):
-    custom_fields = dict(
-        custom_fields or {}
-    )
-
-    identities = custom_fields.get(
-        'sync_identities'
-    )
-
-    if not isinstance(identities, list):
-        return False
-
-    original_names = custom_fields.get(
-        'sync_original_names'
-    )
-
-    if not isinstance(
-        original_names,
-        dict,
-    ):
-        original_names = {}
-
-    for identity in identities:
-        if isinstance(identity, dict):
-            identity_source = identity.get(
-                'source'
-            )
-
-            identity_id = identity.get(
-                'source_id',
-                identity.get('id'),
-            )
-
-            if (
-                identity_source == host.source
-                and identity_id == host.source_id
-            ):
-                return True
-
-            continue
-
-        # Transitional compatibility for the first
-        # version where pynetbox collapsed:
-        #
-        # {"source": "...", "id": "..."}
-        #
-        # into just the value of "id".
-        if isinstance(identity, str):
-            if (
-                identity == host.source_id
-                and original_names.get(
-                    host.source
-                ) == host.original_name
-            ):
-                return True
-
-    return False
+    return bool(source_identity_match_rank(
+        custom_fields,
+        host_source_identity(host),
+        (host.source_id,),
+        host.legacy_identity_owner,
+    ))
 
 
 def build_device_custom_fields(

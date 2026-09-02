@@ -3,6 +3,11 @@ MANAGED_VM_CUSTOM_FIELDS = (
     'sync_original_names',
 )
 
+from .source_identity import (
+    qemu_source_identity,
+    source_identity_match_rank,
+)
+
 
 def vm_identity_source_id(vm):
     """
@@ -29,45 +34,13 @@ def matches_vm_sync_identity(
         custom_fields,
         vm,
 ):
-    custom_fields = dict(
-        custom_fields or {}
-    )
-
-    identities = custom_fields.get(
-        'sync_identities'
-    )
-
-    if not isinstance(identities, list):
-        return False
-
     wanted_id = vm_identity_source_id(vm)
-
-    for identity in identities:
-        if not isinstance(identity, dict):
-            continue
-
-        source = identity.get('source')
-
-        source_id = identity.get(
-            'source_id',
-            identity.get('id'),
-        )
-
-        if (
-            source == vm.source
-            and source_id == wanted_id
-        ):
-            return True
-
-        # Compatibility in case a prefixed source_id
-        # ever appeared in NetBox.
-        if (
-            source == vm.source
-            and source_id == vm.source_id
-        ):
-            return True
-
-    return False
+    return bool(source_identity_match_rank(
+        custom_fields,
+        qemu_source_identity(vm),
+        (wanted_id, vm.source_id),
+        vm.legacy_identity_owner,
+    ))
 
 
 def build_vm_custom_fields(

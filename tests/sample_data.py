@@ -42,6 +42,7 @@ def sample_source_config(address='pve.test.example'):
                 key='/run/secrets/proxmox_token_secret',
             ),
         ),
+        legacy_identity_owner=True,
         settings={},
     )
 

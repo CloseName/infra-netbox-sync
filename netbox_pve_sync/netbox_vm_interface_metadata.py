@@ -1,6 +1,11 @@
 from .netbox_vm_metadata import (
     vm_identity_source_id,
 )
+from .source_identity import (
+    lxc_nic_source_identity,
+    qemu_nic_source_identity,
+    source_identity_match_rank,
+)
 
 
 MANAGED_VM_INTERFACE_CUSTOM_FIELDS = (
@@ -23,38 +28,21 @@ def matches_nic_sync_identity(
         vm,
         nic,
 ):
-    custom_fields = dict(
-        custom_fields or {}
-    )
-
-    identities = custom_fields.get(
-        'sync_identities'
-    )
-
-    if not isinstance(identities, list):
-        return False
-
     wanted = nic_identity_source_id(
         vm,
         nic,
     )
-
-    for identity in identities:
-        if not isinstance(identity, dict):
-            continue
-
-        if (
-            identity.get('source')
-            == vm.source
-            and identity.get(
-                'source_id',
-                identity.get('id'),
-            )
-            == wanted
-        ):
-            return True
-
-    return False
+    builder = (
+        lxc_nic_source_identity
+        if hasattr(vm, 'architecture')
+        else qemu_nic_source_identity
+    )
+    return bool(source_identity_match_rank(
+        custom_fields,
+        builder(vm, nic),
+        (wanted,),
+        vm.legacy_identity_owner,
+    ))
 
 
 def build_nic_custom_fields(

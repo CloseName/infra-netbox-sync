@@ -51,6 +51,7 @@ class DiscoveredHostInterface:
 class DiscoveredHost:
     source: str
     source_instance: str
+    legacy_identity_owner: bool
     source_id: str
 
     original_name: str
@@ -91,6 +92,7 @@ class DiscoveredInterface:
 class DiscoveredVirtualMachine:
     source: str
     source_instance: str
+    legacy_identity_owner: bool
     source_id: str
     node_source_id: str
 
@@ -111,6 +113,7 @@ class DiscoveredVirtualMachine:
 class DiscoveredContainer:
     source: str
     source_instance: str
+    legacy_identity_owner: bool
     source_id: str
     node_source_id: str
 

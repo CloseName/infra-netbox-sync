@@ -128,6 +128,7 @@ class SourceConfig:
     verify_ssl: bool
     target: NetBoxTargetConfig
     credentials: SourceCredentials
+    legacy_identity_owner: bool = False
     settings: Mapping[str, object] = field(
         default_factory=dict
     )
@@ -272,6 +273,11 @@ class SourceConfig:
                     environ,
                     'PVE_API_SECRET',
                 ),
+            ),
+            legacy_identity_owner=_environment_flag(
+                environ,
+                'SOURCE_LEGACY_IDENTITY_OWNER',
+                'true',
             ),
             settings={},
         )

@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 
 IDENTITY_SCHEMA_V2 = 'v2'
+NO_IDENTITY_MATCH = 0
+LEGACY_IDENTITY_MATCH = 1
+V2_IDENTITY_MATCH = 2
 
 
 def _required_text(value, field_name):
@@ -102,3 +105,37 @@ def original_name_key(identity):
     """Return the source-aware key used by ``sync_original_names``."""
 
     return f'{identity.type}/{identity.instance}/{identity.kind}'
+
+
+def source_identity_match_rank(
+        custom_fields,
+        desired,
+        legacy_source_ids=(),
+        legacy_identity_owner=False,
+):
+    """Match v2 first and permit v1 only for the explicit legacy owner."""
+
+    identities = dict(custom_fields or {}).get('sync_identities')
+    if not isinstance(identities, list):
+        return NO_IDENTITY_MATCH
+
+    for value in identities:
+        parsed = SourceIdentity.from_record(value)
+        if parsed == desired:
+            return V2_IDENTITY_MATCH
+
+    if not legacy_identity_owner:
+        return NO_IDENTITY_MATCH
+
+    wanted = {str(value) for value in legacy_source_ids}
+    for value in identities:
+        if not isinstance(value, dict) or value.get('schema') == IDENTITY_SCHEMA_V2:
+            continue
+
+        if (
+            value.get('source') == desired.type
+            and str(value.get('source_id', value.get('id'))) in wanted
+        ):
+            return LEGACY_IDENTITY_MATCH
+
+    return NO_IDENTITY_MATCH

@@ -7,6 +7,11 @@ MANAGED_LXC_CUSTOM_FIELDS = (
     'swap_mb',
 )
 
+from .source_identity import (
+    lxc_source_identity,
+    source_identity_match_rank,
+)
+
 
 def lxc_identity_source_id(container):
     source_id = str(
@@ -29,46 +34,12 @@ def matches_lxc_sync_identity(
         custom_fields,
         container,
 ):
-    custom_fields = dict(
-        custom_fields or {}
-    )
-
-    identities = custom_fields.get(
-        'sync_identities'
-    )
-
-    if not isinstance(
-        identities,
-        list,
-    ):
-        return False
-
-    wanted = (
-        lxc_identity_source_id(
-            container
-        )
-    )
-
-    for identity in identities:
-        if not isinstance(
-            identity,
-            dict,
-        ):
-            continue
-
-        source_id = identity.get(
-            'source_id',
-            identity.get('id'),
-        )
-
-        if (
-            identity.get('source')
-            == container.source
-            and source_id == wanted
-        ):
-            return True
-
-    return False
+    return bool(source_identity_match_rank(
+        custom_fields,
+        lxc_source_identity(container),
+        (lxc_identity_source_id(container),),
+        container.legacy_identity_owner,
+    ))
 
 
 def build_lxc_custom_fields(
