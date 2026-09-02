@@ -6,6 +6,7 @@ from .source_identity import (
     merge_original_name,
     merge_source_identities,
     qemu_nic_source_identity,
+    select_best_identity_matches,
     source_identity_match_rank,
 )
 
@@ -30,6 +31,12 @@ def matches_nic_sync_identity(
         vm,
         nic,
 ):
+    return bool(nic_sync_identity_match_rank(custom_fields, vm, nic))
+
+
+def nic_sync_identity_match_rank(custom_fields, vm, nic):
+    """Return the centralized v2/v1 match priority for one NIC."""
+
     wanted = nic_identity_source_id(
         vm,
         nic,
@@ -39,12 +46,23 @@ def matches_nic_sync_identity(
         if hasattr(vm, 'architecture')
         else qemu_nic_source_identity
     )
-    return bool(source_identity_match_rank(
+    return source_identity_match_rank(
         custom_fields,
         builder(vm, nic),
         (wanted,),
         vm.legacy_identity_owner,
-    ))
+    )
+
+
+def find_nic_sync_identity_matches(candidates, vm, nic):
+    """Find best-ranked interface records, retaining duplicates."""
+
+    return select_best_identity_matches(
+        candidates,
+        lambda candidate: nic_sync_identity_match_rank(
+            getattr(candidate, 'custom_fields', None) or {}, vm, nic,
+        ),
+    )
 
 
 def build_nic_custom_fields(

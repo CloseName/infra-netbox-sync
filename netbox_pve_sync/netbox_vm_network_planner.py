@@ -1,8 +1,6 @@
 import ipaddress
 
-from .netbox_vm_metadata import (
-    matches_vm_sync_identity,
-)
+from .netbox_vm_metadata import find_vm_sync_identity_matches
 
 
 def _object_id(value):
@@ -146,25 +144,7 @@ def _vm_identity_match(
         target_vms,
         discovered_vm,
 ):
-    matches = []
-
-    for vm in target_vms:
-        custom_fields = (
-            getattr(
-                vm,
-                'custom_fields',
-                None,
-            )
-            or {}
-        )
-
-        if matches_vm_sync_identity(
-            custom_fields,
-            discovered_vm,
-        ):
-            matches.append(vm)
-
-    return matches
+    return find_vm_sync_identity_matches(target_vms, discovered_vm)
 
 
 def _existing_primary_ipv4(

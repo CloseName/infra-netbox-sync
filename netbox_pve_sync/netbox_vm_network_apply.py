@@ -1,13 +1,13 @@
 import ipaddress
 
 from .netbox_vm_metadata import (
-    matches_vm_sync_identity,
+    find_vm_sync_identity_matches,
 )
 
 from .netbox_vm_interface_metadata import (
     MANAGED_VM_INTERFACE_CUSTOM_FIELDS,
     build_nic_custom_fields,
-    matches_nic_sync_identity,
+    find_nic_sync_identity_matches,
     nic_identity_source_id,
 )
 
@@ -70,19 +70,7 @@ def _find_vm(
         target_vms,
         discovered_vm,
 ):
-    matches = []
-
-    for vm in target_vms:
-        if matches_vm_sync_identity(
-            getattr(
-                vm,
-                'custom_fields',
-                None,
-            )
-            or {},
-            discovered_vm,
-        ):
-            matches.append(vm)
+    matches = find_vm_sync_identity_matches(target_vms, discovered_vm)
 
     if len(matches) != 1:
         raise VMNetworkApplyError(
@@ -99,22 +87,9 @@ def _interface_match(
         vm,
         nic,
 ):
-    identity_matches = []
-
-    for interface in existing_interfaces:
-        if matches_nic_sync_identity(
-            getattr(
-                interface,
-                'custom_fields',
-                None,
-            )
-            or {},
-            vm,
-            nic,
-        ):
-            identity_matches.append(
-                interface
-            )
+    identity_matches = find_nic_sync_identity_matches(
+        existing_interfaces, vm, nic,
+    )
 
     if len(identity_matches) > 1:
         raise VMNetworkApplyError(

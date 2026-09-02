@@ -1,13 +1,13 @@
 import ipaddress
 
 from .netbox_lxc_metadata import (
-    matches_lxc_sync_identity,
+    find_lxc_sync_identity_matches,
 )
 
 from .netbox_vm_interface_metadata import (
     MANAGED_VM_INTERFACE_CUSTOM_FIELDS,
     build_nic_custom_fields,
-    matches_nic_sync_identity,
+    find_nic_sync_identity_matches,
 )
 
 
@@ -81,19 +81,7 @@ def _find_lxc_vm(
     all_vms,
     container,
 ):
-    matches = []
-
-    for vm in all_vms:
-        if matches_lxc_sync_identity(
-            getattr(
-                vm,
-                'custom_fields',
-                None,
-            )
-            or {},
-            container,
-        ):
-            matches.append(vm)
+    matches = find_lxc_sync_identity_matches(all_vms, container)
 
     if len(matches) != 1:
         raise LXCNetworkApplyError(
@@ -111,22 +99,9 @@ def _find_interface(
     container,
     nic,
 ):
-    identity_matches = []
-
-    for interface in interfaces:
-        if matches_nic_sync_identity(
-            getattr(
-                interface,
-                'custom_fields',
-                None,
-            )
-            or {},
-            container,
-            nic,
-        ):
-            identity_matches.append(
-                interface
-            )
+    identity_matches = find_nic_sync_identity_matches(
+        interfaces, container, nic,
+    )
 
     if len(identity_matches) > 1:
         raise LXCNetworkApplyError(
