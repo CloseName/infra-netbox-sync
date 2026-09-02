@@ -1,0 +1,228 @@
+"""PostgreSQL integration tests for the Source Registry foundation."""
+
+import os
+import uuid
+from dataclasses import replace
+
+import psycopg
+import pytest
+from psycopg import errors, sql
+from psycopg.conninfo import conninfo_to_dict
+
+from netbox_pve_sync.source_config import SecretReference, SourceCredentials
+from netbox_pve_sync.source_registry import (
+    SourceConflictError,
+    SourceRecord,
+    SourceRegistry,
+)
+
+from tests.sample_data import sample_source_config
+
+
+TEST_DSN_VARIABLE = 'INFRA_SYNC_TEST_POSTGRES_DSN'
+TEST_DATABASE_NAME = 'infra_sync_test'
+TEST_SCHEMA_PREFIX = 'infra_sync_test_'
+
+
+def _config(**changes):
+    return replace(sample_source_config(), **changes)
+
+
+def _safe_test_dsn():
+    dsn = os.environ.get(TEST_DSN_VARIABLE, '').strip()
+    if not dsn:
+        pytest.skip(f'{TEST_DSN_VARIABLE} is not configured')
+
+    database = conninfo_to_dict(dsn).get('dbname')
+    if database != TEST_DATABASE_NAME:
+        pytest.fail(
+            f'{TEST_DSN_VARIABLE} must target database {TEST_DATABASE_NAME!r}'
+        )
+    return dsn
+
+
+def _registry_without_database():
+    def reject_connection():
+        raise AssertionError('validation must happen before database access')
+
+    return SourceRegistry(reject_connection, 'infra_sync_test_validation')
+
+
+def test_domain_validation_happens_before_database_access():
+    registry = _registry_without_database()
+
+    with pytest.raises(ValueError, match='source_instance'):
+        _config(source_instance='INVALID INSTANCE')
+    with pytest.raises(ValueError, match='positive integer'):
+        _config(sync_interval_seconds=0)
+    with pytest.raises(ValueError, match='settings must be a mapping'):
+        _config(settings=['not', 'an', 'object'])
+    with pytest.raises(ValueError, match='unsupported source_type'):
+        registry.create_source(_config(source_type='esxi'))
+
+
+def test_invalid_secret_reference_is_rejected_before_database_access():
+    registry = _registry_without_database()
+    config = _config()
+    invalid_provider = replace(
+        config.credentials,
+        token_secret=SecretReference(provider='vault', key='future-key'),
+    )
+    plaintext = replace(
+        config.credentials,
+        token_secret='FAKE_SECRET_VALUE_DO_NOT_STORE',
+    )
+
+    with pytest.raises(ValueError, match='unsupported secret provider'):
+        registry.create_source(replace(config, credentials=invalid_provider))
+    with pytest.raises(TypeError, match='SecretReference'):
+        registry.create_source(replace(config, credentials=plaintext))
+
+
+@pytest.fixture
+def pg_registry():
+    dsn = _safe_test_dsn()
+    schema = TEST_SCHEMA_PREFIX + uuid.uuid4().hex
+
+    def connect():
+        return psycopg.connect(dsn)
+
+    registry = SourceRegistry(connect, schema)
+    registry.initialize()
+    try:
+        yield registry, connect
+    finally:
+        assert schema.startswith(TEST_SCHEMA_PREFIX)
+        with connect() as connection:
+            connection.execute(
+                sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema))
+            )
+
+
+def test_initialize_empty_database_is_idempotent(pg_registry):
+    registry, _ = pg_registry
+
+    assert registry.schema_version() == 1
+    assert registry.list_sources() == ()
+    registry.initialize()
+    assert registry.schema_version() == 1
+    assert registry.list_sources() == ()
+
+
+def test_create_get_list_and_source_config_conversion(pg_registry):
+    registry, _ = pg_registry
+    config = _config(settings={'pool': 'infra', 'limits': {'batch': 10}})
+
+    created = registry.create_source(config)
+
+    assert isinstance(created, SourceRecord)
+    assert created.id == config.id
+    assert created.source_instance == config.source_instance
+    assert created.created_at.tzinfo is not None
+    assert created.updated_at == created.created_at
+    assert registry.get_source(config.id) == created
+    assert registry.get_by_source_instance(config.source_instance) == created
+    assert registry.list_sources() == (created,)
+    assert registry.get_source_config(config.id) == config
+    assert dict(created.config.settings) == {
+        'limits': {'batch': 10},
+        'pool': 'infra',
+    }
+
+
+def test_duplicate_id_and_source_instance_fail_without_partial_rows(pg_registry):
+    registry, _ = pg_registry
+    config = _config()
+    registry.create_source(config)
+
+    with pytest.raises(SourceConflictError, match='duplicate'):
+        registry.create_source(replace(config, source_instance='pve-other'))
+    with pytest.raises(SourceConflictError, match='duplicate'):
+        registry.create_source(replace(config, id='other-source'))
+
+    assert registry.list_sources() == (registry.get_source(config.id),)
+
+
+@pytest.mark.parametrize('provider', ('env', 'file'))
+def test_secret_references_round_trip_without_resolution(pg_registry, provider):
+    registry, _ = pg_registry
+    credentials = SourceCredentials(
+        username='sync@pve',
+        token_id=SecretReference(provider=provider, key='PVE_TOKEN_ID'),
+        token_secret=SecretReference(provider=provider, key='PVE_TOKEN_SECRET'),
+    )
+
+    stored = registry.create_source(_config(credentials=credentials))
+
+    assert stored.config.credentials == credentials
+
+
+def test_settings_database_constraint_rejects_non_object(pg_registry):
+    registry, connect = pg_registry
+    created = registry.create_source(_config())
+
+    with pytest.raises(errors.CheckViolation):
+        with connect() as connection:
+            connection.execute(
+                sql.SQL('UPDATE {} SET settings = %s WHERE id = %s').format(
+                    sql.Identifier(registry.schema, 'sources')
+                ),
+                (psycopg.types.json.Jsonb([]), created.id),
+            )
+
+    assert dict(registry.get_source_config(created.id).settings) == {}
+
+
+def test_mutable_update_and_noop_timestamp_behavior(pg_registry):
+    registry, _ = pg_registry
+    created = registry.create_source(_config())
+
+    updated = registry.update_source(
+        created.id,
+        name='Renamed Proxmox',
+        address='new-pve.example',
+        sync_interval_seconds=900,
+        settings={'pool': 'production'},
+    )
+
+    assert updated.config.name == 'Renamed Proxmox'
+    assert updated.config.address == 'new-pve.example'
+    assert updated.config.sync_interval_seconds == 900
+    assert dict(updated.config.settings) == {'pool': 'production'}
+    assert updated.created_at == created.created_at
+    assert updated.updated_at > created.updated_at
+
+    no_op = registry.update_source(created.id, name='Renamed Proxmox')
+    assert no_op.updated_at == updated.updated_at
+
+
+@pytest.mark.parametrize('field_name', ('id', 'source_instance', 'source_type'))
+def test_identity_fields_are_immutable(pg_registry, field_name):
+    registry, _ = pg_registry
+    config = _config()
+    registry.create_source(config)
+
+    with pytest.raises(ValueError, match='immutable'):
+        registry.update_source(config.id, **{field_name: 'changed'})
+
+    assert registry.get_source_config(config.id) == config
+
+
+def test_invalid_update_rolls_back(pg_registry):
+    registry, _ = pg_registry
+    config = _config()
+    before = registry.create_source(config)
+
+    with pytest.raises(ValueError, match='positive integer'):
+        registry.update_source(
+            config.id,
+            name='must not persist',
+            sync_interval_seconds=0,
+        )
+
+    assert registry.get_source(config.id) == before
+
+
+def test_registry_has_no_delete_api(pg_registry):
+    registry, _ = pg_registry
+    assert not hasattr(registry, 'delete_source')
