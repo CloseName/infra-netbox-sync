@@ -30,6 +30,19 @@ def _config(**changes):
     return replace(sample_source_config(), **changes)
 
 
+def _esxi_config(source_id='esxi-a', **changes):
+    password = SecretReference(provider='env', key='ESXI_A_PASSWORD')
+    values = {
+        'id': source_id,
+        'source_instance': source_id,
+        'source_type': 'esxi',
+        'legacy_identity_owner': False,
+        'credentials': SourceCredentials.for_password('root', password),
+    }
+    values.update(changes)
+    return _config(**values)
+
+
 def _safe_test_dsn():
     dsn = os.environ.get(TEST_DSN_VARIABLE, '').strip()
     if not dsn:
@@ -79,6 +92,15 @@ def test_invalid_secret_reference_is_rejected_before_database_access():
         registry.create_source(replace(config, credentials=invalid_provider))
     with pytest.raises(TypeError, match='SecretReference'):
         registry.create_source(replace(config, credentials=plaintext))
+
+
+def test_esxi_legacy_identity_owner_is_rejected_before_database_access():
+    registry = _registry_without_database()
+
+    with pytest.raises(ValueError, match='legacy identity owner'):
+        registry.create_source(
+            _config(source_type='esxi', legacy_identity_owner=True)
+        )
 
 
 @pytest.fixture
@@ -332,3 +354,52 @@ def test_runnable_source_listing_is_filtered_ordered_and_secret_opaque(
     assert [config.id for config in runnable] == ['pve-a', 'pve-b']
     assert all(config.enabled and config.sync_enabled for config in runnable)
     assert all(config.credentials == credentials for config in runnable)
+
+
+def test_esxi_source_round_trips_without_plaintext_password(
+        pg_registry,
+        monkeypatch,
+):
+    registry, connect = pg_registry
+    plaintext = 'FAKE_ESXI_PASSWORD_DO_NOT_STORE'
+    monkeypatch.setenv('ESXI_A_PASSWORD', plaintext)
+
+    created = registry.create_source(_esxi_config())
+
+    assert created.config.source_type == 'esxi'
+    assert created.config.credentials.username == 'root'
+    assert created.config.credentials.password_reference == SecretReference(
+        provider='env', key='ESXI_A_PASSWORD'
+    )
+    with connect() as connection:
+        row_text = connection.execute(
+            sql.SQL(
+                'SELECT row_to_json(source_row)::text '
+                'FROM {} AS source_row WHERE id = %s'
+            ).format(sql.Identifier(registry.schema, 'sources')),
+            (created.id,),
+        ).fetchone()[0]
+    assert plaintext not in row_text
+
+
+def test_mixed_runnable_sources_are_ordered_and_filtered(pg_registry):
+    registry, _ = pg_registry
+    configs = (
+        _config(
+            id='pve-b',
+            source_instance='pve-b',
+            legacy_identity_owner=False,
+        ),
+        _esxi_config('esxi-a'),
+        _esxi_config('esxi-disabled', enabled=False),
+        _esxi_config('esxi-sync-disabled', sync_enabled=False),
+    )
+    for config in configs:
+        registry.create_source(config)
+
+    runnable = registry.list_runnable_sources()
+
+    assert [(config.id, config.source_type) for config in runnable] == [
+        ('esxi-a', 'esxi'),
+        ('pve-b', 'proxmox'),
+    ]
