@@ -13,7 +13,8 @@ from .source_registry import SourceRegistry
 
 LEGACY_MODE = 'legacy'
 REGISTRY_MODE = 'registry'
-RUNTIME_MODES = frozenset({LEGACY_MODE, REGISTRY_MODE})
+REGISTRY_ALL_MODE = 'registry-all'
+RUNTIME_MODES = frozenset({LEGACY_MODE, REGISTRY_MODE, REGISTRY_ALL_MODE})
 
 
 class SourceBootstrapError(RuntimeError):
@@ -72,7 +73,7 @@ def runtime_source_mode(environ):
     mode = environ.get('SOURCE_CONFIG_MODE', '').strip().lower()
     if mode not in RUNTIME_MODES:
         raise SourceBootstrapError(
-            'SOURCE_CONFIG_MODE must be legacy or registry'
+            'SOURCE_CONFIG_MODE must be legacy, registry, or registry-all'
         )
     return mode
 
@@ -92,6 +93,10 @@ def load_runtime_source_config(environ=None, registry_factory=None):
     mode = runtime_source_mode(environ)
     if mode == LEGACY_MODE:
         return SourceConfig.from_legacy_environment(environ)
+    if mode == REGISTRY_ALL_MODE:
+        raise SourceBootstrapError(
+            'registry-all mode requires multi-source configuration loading'
+        )
 
     dsn = _required(environ, 'INFRA_SYNC_REGISTRY_DSN')
     schema = _required(environ, 'INFRA_SYNC_REGISTRY_SCHEMA')
@@ -112,6 +117,25 @@ def load_runtime_source_config(environ=None, registry_factory=None):
             f'Registry source id {source_id!r} has sync disabled'
         )
     return config
+
+
+def load_runtime_source_configs(environ=None, registry_factory=None):
+    """Load all runnable configs for explicit multi-source registry mode."""
+
+    if environ is None:
+        environ = os.environ
+    if runtime_source_mode(environ) != REGISTRY_ALL_MODE:
+        raise SourceBootstrapError(
+            'multi-source loading requires SOURCE_CONFIG_MODE=registry-all'
+        )
+    dsn = _required(environ, 'INFRA_SYNC_REGISTRY_DSN')
+    schema = _required(environ, 'INFRA_SYNC_REGISTRY_SCHEMA')
+    factory = registry_factory or _postgres_registry
+    registry = factory(dsn, schema)
+    configs = registry.list_runnable_sources()
+    if not configs:
+        raise SourceBootstrapError('Registry has no runnable sources')
+    return configs
 
 
 def _registry_credential_reference(reference):

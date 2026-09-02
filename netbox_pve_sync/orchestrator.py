@@ -70,7 +70,7 @@ def run_sources(sources, execute_source, clock=None):
         started_at = now()
         try:
             execute_source(source)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
+        except (Exception, SystemExit) as exc:  # pylint: disable=broad-exception-caught
             results.append(
                 SourceRunResult(
                     source_id=source.id,

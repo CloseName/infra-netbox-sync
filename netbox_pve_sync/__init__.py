@@ -17,10 +17,14 @@ from .netbox_planner import plan_hosts
 from .source_config import SourceConfig
 from .source_bootstrap import (
     LEGACY_MODE,
+    REGISTRY_ALL_MODE,
     load_runtime_source_config,
+    load_runtime_source_configs,
     runtime_source_mode,
 )
 from .secret_resolver import FileSecretResolver, LegacyFileSecretResolver
+from .orchestrator import run_sources
+from .source_executor import SourceExecutorDispatch
 from .netbox_apply import apply_hosts
 from .netbox_vm_apply import apply_virtual_machines
 from .netbox_vm_network_apply import apply_vm_networks
@@ -806,19 +810,16 @@ def _get_virtual_machine_vcpus(_pve_virtual_machine_config: dict) -> int:
     return _pve_virtual_machine_config['cores'] * _pve_virtual_machine_config['sockets']
 
 
-def main():
-    """
-    netbox-pve-sync main entrypoint
-    """
+def execute_proxmox_source(
+        source_config,
+        sync_mode,
+        legacy_secrets=False,
+):
+    """Execute the existing validated pipeline for one Proxmox source."""
 
-    sync_mode = _get_sync_mode()
-    print(f'SYNC_MODE={sync_mode}')
-
-    source_mode = runtime_source_mode(os.environ)
-    source_config = load_runtime_source_config()
     resolver_class = (
         LegacyFileSecretResolver
-        if source_mode == LEGACY_MODE
+        if legacy_secrets
         else FileSecretResolver
     )
     pve_credentials = resolver_class().resolve_credentials(
@@ -1054,6 +1055,51 @@ def main():
                 pve_virtual_machine['vmid'] in pve_replicated_virtual_machine_ids,
                 pve_virtual_machine['vmid'] in pve_ha_virtual_machine_ids,
             )
+
+
+def _print_multi_source_result(result):
+    for source_result in result.results:
+        if source_result.success:
+            print(f'SOURCE {source_result.source_id} SUCCESS')
+        else:
+            print(
+                f'SOURCE {source_result.source_id} FAILED '
+                f'{source_result.error_type}: '
+                f'{source_result.error_summary}'
+            )
+    print()
+    print('MULTI-SOURCE SUMMARY')
+    print(f'total={result.total}')
+    print(f'succeeded={result.succeeded}')
+    print(f'failed={result.failed}')
+
+
+def main():
+    """netbox-pve-sync main entrypoint."""
+
+    sync_mode = _get_sync_mode()
+    print(f'SYNC_MODE={sync_mode}')
+    source_mode = runtime_source_mode(os.environ)
+    if source_mode == REGISTRY_ALL_MODE:
+        configs = load_runtime_source_configs()
+        dispatch = SourceExecutorDispatch({
+            'proxmox': lambda config: execute_proxmox_source(
+                config,
+                sync_mode,
+            ),
+        })
+        result = run_sources(configs, dispatch.execute)
+        _print_multi_source_result(result)
+        if result.failed:
+            raise SystemExit(1)
+        return
+
+    source_config = load_runtime_source_config()
+    execute_proxmox_source(
+        source_config,
+        sync_mode,
+        legacy_secrets=(source_mode == LEGACY_MODE),
+    )
 
 
 if __name__ == '__main__':
