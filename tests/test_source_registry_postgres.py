@@ -287,3 +287,48 @@ def test_guarded_bootstrap_create_update_and_noop_against_postgres(pg_registry):
     bootstrap_legacy_source(registry, desired, confirmed=True)
     assert registry.get_source_config(initial.id).address == 'new-pve.example'
     assert bootstrap_legacy_source(registry, desired, confirmed=True).noop == 1
+
+
+def test_runnable_source_listing_is_filtered_ordered_and_secret_opaque(
+        pg_registry,
+        monkeypatch,
+):
+    registry, _ = pg_registry
+    monkeypatch.delenv('MISSING_MULTI_SOURCE_TOKEN', raising=False)
+    credentials = SourceCredentials(
+        username='sync@pve',
+        token_id=SecretReference(provider='env', key='MISSING_MULTI_SOURCE_TOKEN'),
+        token_secret=SecretReference(provider='file', key='missing-secret-file'),
+    )
+    configs = (
+        _config(
+            id='pve-b',
+            source_instance='pve-b',
+            credentials=credentials,
+        ),
+        _config(
+            id='pve-a',
+            source_instance='pve-a',
+            credentials=credentials,
+        ),
+        _config(
+            id='pve-disabled',
+            source_instance='pve-disabled',
+            enabled=False,
+            credentials=credentials,
+        ),
+        _config(
+            id='pve-sync-disabled',
+            source_instance='pve-sync-disabled',
+            sync_enabled=False,
+            credentials=credentials,
+        ),
+    )
+    for config in configs:
+        registry.create_source(config)
+
+    runnable = registry.list_runnable_sources()
+
+    assert [config.id for config in runnable] == ['pve-a', 'pve-b']
+    assert all(config.enabled and config.sync_enabled for config in runnable)
+    assert all(config.credentials == credentials for config in runnable)
