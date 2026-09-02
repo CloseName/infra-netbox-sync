@@ -9,6 +9,8 @@ MANAGED_LXC_CUSTOM_FIELDS = (
 
 from .source_identity import (
     lxc_source_identity,
+    merge_original_name,
+    merge_source_identities,
     source_identity_match_rank,
 )
 
@@ -50,86 +52,11 @@ def build_lxc_custom_fields(
         existing_custom_fields or {}
     )
 
-    identities = existing.get(
-        'sync_identities'
+    desired_identity = lxc_source_identity(container)
+    merged_identities = merge_source_identities(existing, desired_identity)
+    merged_original_names = merge_original_name(
+        existing, desired_identity, container.original_name,
     )
-
-    if identities is None:
-        identities = []
-
-    if not isinstance(
-        identities,
-        list,
-    ):
-        raise ValueError(
-            'sync_identities '
-            'must be a JSON list'
-        )
-
-    merged_identities = []
-
-    for identity in identities:
-        if not isinstance(
-            identity,
-            dict,
-        ):
-            raise ValueError(
-                'sync_identities contains '
-                'an unsupported value'
-            )
-
-        normalized = dict(identity)
-
-        if (
-            'source_id'
-            not in normalized
-            and 'id' in normalized
-        ):
-            normalized[
-                'source_id'
-            ] = normalized.pop('id')
-
-        if normalized.get(
-            'source'
-        ) == container.source:
-            continue
-
-        merged_identities.append(
-            normalized
-        )
-
-    merged_identities.append({
-        'source':
-            container.source,
-        'source_id':
-            lxc_identity_source_id(
-                container
-            ),
-    })
-
-    original_names = existing.get(
-        'sync_original_names'
-    )
-
-    if original_names is None:
-        original_names = {}
-
-    if not isinstance(
-        original_names,
-        dict,
-    ):
-        raise ValueError(
-            'sync_original_names '
-            'must be a JSON object'
-        )
-
-    merged_original_names = dict(
-        original_names
-    )
-
-    merged_original_names[
-        container.source
-    ] = container.original_name
 
     result = dict(existing)
 

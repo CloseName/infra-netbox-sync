@@ -139,3 +139,45 @@ def source_identity_match_rank(
             return LEGACY_IDENTITY_MATCH
 
     return NO_IDENTITY_MATCH
+
+
+def merge_source_identities(custom_fields, desired):
+    """Preserve foreign and legacy records while owning one v2 namespace."""
+
+    identities = dict(custom_fields or {}).get('sync_identities', [])
+    if not isinstance(identities, list):
+        raise ValueError('sync_identities must be a JSON list')
+
+    result = []
+    for value in identities:
+        if not isinstance(value, dict):
+            raise ValueError('sync_identities contains an unsupported value')
+
+        parsed = SourceIdentity.from_record(value)
+        if parsed is not None and (
+            parsed.type,
+            parsed.instance,
+            parsed.kind,
+        ) == (
+            desired.type,
+            desired.instance,
+            desired.kind,
+        ):
+            continue
+
+        result.append(dict(value))
+
+    result.append(desired.to_record())
+    return sorted(result, key=lambda value: repr(sorted(value.items())))
+
+
+def merge_original_name(custom_fields, desired, original_name):
+    """Add the source-aware key without removing legacy or foreign names."""
+
+    values = dict(custom_fields or {}).get('sync_original_names', {})
+    if not isinstance(values, dict):
+        raise ValueError('sync_original_names must be a JSON object')
+
+    result = dict(values)
+    result[original_name_key(desired)] = original_name
+    return result

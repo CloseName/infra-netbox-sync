@@ -13,6 +13,8 @@ MANAGED_DEVICE_CUSTOM_FIELDS = (
 
 from .source_identity import (
     host_source_identity,
+    merge_original_name,
+    merge_source_identities,
     source_identity_match_rank,
 )
 
@@ -37,123 +39,10 @@ def build_device_custom_fields(
         existing_custom_fields or {}
     )
 
-    original_names = existing.get(
-        'sync_original_names'
-    )
-
-    if original_names is None:
-        original_names = {}
-
-    if not isinstance(
-        original_names,
-        dict,
-    ):
-        raise ValueError(
-            'sync_original_names '
-            'must be a JSON object'
-        )
-
-    merged_original_names = dict(
-        original_names
-    )
-
-    merged_original_names[
-        host.source
-    ] = host.original_name
-
-    identities = existing.get(
-        'sync_identities'
-    )
-
-    if identities is None:
-        identities = []
-
-    if not isinstance(identities, list):
-        raise ValueError(
-            'sync_identities '
-            'must be a JSON list'
-        )
-
-    merged_identities = []
-
-    for identity in identities:
-        if isinstance(identity, dict):
-            normalized = dict(identity)
-
-            # Migrate the old JSON schema:
-            # id -> source_id
-            if (
-                'source_id' not in normalized
-                and 'id' in normalized
-            ):
-                normalized[
-                    'source_id'
-                ] = normalized.pop('id')
-
-            source = normalized.get(
-                'source'
-            )
-
-            source_id = normalized.get(
-                'source_id'
-            )
-
-            if (
-                source is None
-                or source_id is None
-            ):
-                raise ValueError(
-                    'sync_identities contains '
-                    'an invalid identity object'
-                )
-
-            # The current source is replaced by
-            # freshly discovered identity below.
-            if source == host.source:
-                continue
-
-            merged_identities.append(
-                normalized
-            )
-            continue
-
-        if isinstance(identity, str):
-            # Migrate the malformed value produced
-            # by the first implementation.
-            if (
-                identity == host.source_id
-                and original_names.get(
-                    host.source
-                ) == host.original_name
-            ):
-                continue
-
-            raise ValueError(
-                'sync_identities contains '
-                'an unattributed legacy string: '
-                f'{identity!r}'
-            )
-
-        raise ValueError(
-            'sync_identities contains '
-            'an unsupported value'
-        )
-
-    merged_identities.append({
-        'source': host.source,
-        'source_id': host.source_id,
-    })
-
-    merged_identities.sort(
-        key=lambda item: (
-            str(item.get('source', '')),
-            str(
-                item.get(
-                    'source_id',
-                    '',
-                )
-            ),
-        )
+    desired_identity = host_source_identity(host)
+    merged_identities = merge_source_identities(existing, desired_identity)
+    merged_original_names = merge_original_name(
+        existing, desired_identity, host.original_name,
     )
 
     physical_disks = []

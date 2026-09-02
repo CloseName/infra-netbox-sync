@@ -4,6 +4,8 @@ MANAGED_VM_CUSTOM_FIELDS = (
 )
 
 from .source_identity import (
+    merge_original_name,
+    merge_source_identities,
     qemu_source_identity,
     source_identity_match_rank,
 )
@@ -51,104 +53,10 @@ def build_vm_custom_fields(
         existing_custom_fields or {}
     )
 
-    original_names = existing.get(
-        'sync_original_names'
-    )
-
-    if original_names is None:
-        original_names = {}
-
-    if not isinstance(
-        original_names,
-        dict,
-    ):
-        raise ValueError(
-            'sync_original_names '
-            'must be a JSON object'
-        )
-
-    merged_original_names = dict(
-        original_names
-    )
-
-    merged_original_names[
-        vm.source
-    ] = vm.original_name
-
-    identities = existing.get(
-        'sync_identities'
-    )
-
-    if identities is None:
-        identities = []
-
-    if not isinstance(identities, list):
-        raise ValueError(
-            'sync_identities '
-            'must be a JSON list'
-        )
-
-    merged_identities = []
-
-    for identity in identities:
-        if not isinstance(identity, dict):
-            raise ValueError(
-                'sync_identities contains '
-                'an unsupported value'
-            )
-
-        normalized = dict(identity)
-
-        if (
-            'source_id' not in normalized
-            and 'id' in normalized
-        ):
-            normalized[
-                'source_id'
-            ] = normalized.pop('id')
-
-        source = normalized.get(
-            'source'
-        )
-
-        source_id = normalized.get(
-            'source_id'
-        )
-
-        if (
-            source is None
-            or source_id is None
-        ):
-            raise ValueError(
-                'sync_identities contains '
-                'an invalid identity object'
-            )
-
-        # Fresh discovery owns the identity for
-        # its own source.
-        if source == vm.source:
-            continue
-
-        merged_identities.append(
-            normalized
-        )
-
-    merged_identities.append({
-        'source': vm.source,
-        'source_id':
-            vm_identity_source_id(vm),
-    })
-
-    merged_identities.sort(
-        key=lambda item: (
-            str(item.get('source', '')),
-            str(
-                item.get(
-                    'source_id',
-                    '',
-                )
-            ),
-        )
+    desired_identity = qemu_source_identity(vm)
+    merged_identities = merge_source_identities(existing, desired_identity)
+    merged_original_names = merge_original_name(
+        existing, desired_identity, vm.original_name,
     )
 
     result = dict(existing)

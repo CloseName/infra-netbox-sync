@@ -3,6 +3,8 @@ from .netbox_vm_metadata import (
 )
 from .source_identity import (
     lxc_nic_source_identity,
+    merge_original_name,
+    merge_source_identities,
     qemu_nic_source_identity,
     source_identity_match_rank,
 )
@@ -54,77 +56,16 @@ def build_nic_custom_fields(
         existing_custom_fields or {}
     )
 
-    identities = existing.get(
-        'sync_identities'
+    builder = (
+        lxc_nic_source_identity
+        if hasattr(vm, 'architecture')
+        else qemu_nic_source_identity
     )
-
-    if identities is None:
-        identities = []
-
-    if not isinstance(identities, list):
-        raise ValueError(
-            'sync_identities must be a JSON list'
-        )
-
-    merged_identities = []
-
-    for identity in identities:
-        if not isinstance(identity, dict):
-            raise ValueError(
-                'sync_identities contains '
-                'an unsupported value'
-            )
-
-        normalized = dict(identity)
-
-        if (
-            'source_id' not in normalized
-            and 'id' in normalized
-        ):
-            normalized[
-                'source_id'
-            ] = normalized.pop('id')
-
-        if normalized.get(
-            'source'
-        ) == vm.source:
-            continue
-
-        merged_identities.append(
-            normalized
-        )
-
-    merged_identities.append({
-        'source': vm.source,
-        'source_id': nic_identity_source_id(
-            vm,
-            nic,
-        ),
-    })
-
-    original_names = existing.get(
-        'sync_original_names'
+    desired_identity = builder(vm, nic)
+    merged_identities = merge_source_identities(existing, desired_identity)
+    merged_original_names = merge_original_name(
+        existing, desired_identity, nic.name,
     )
-
-    if original_names is None:
-        original_names = {}
-
-    if not isinstance(
-        original_names,
-        dict,
-    ):
-        raise ValueError(
-            'sync_original_names '
-            'must be a JSON object'
-        )
-
-    merged_original_names = dict(
-        original_names
-    )
-
-    merged_original_names[
-        vm.source
-    ] = nic.name
 
     result = dict(existing)
 
