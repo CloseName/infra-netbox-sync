@@ -60,7 +60,7 @@ def test_domain_validation_happens_before_database_access():
     with pytest.raises(ValueError, match='settings must be a mapping'):
         _config(settings=['not', 'an', 'object'])
     with pytest.raises(ValueError, match='unsupported source_type'):
-        registry.create_source(_config(source_type='esxi'))
+        registry.create_source(_config(source_type='xen'))
 
 
 def test_invalid_secret_reference_is_rejected_before_database_access():

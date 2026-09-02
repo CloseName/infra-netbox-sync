@@ -112,6 +112,22 @@ class SourceCredentials:
     def __post_init__(self):
         _require_text(self.username, 'username')
 
+    @classmethod
+    def for_password(cls, username, password_reference):
+        """Build backward-compatible username/password credentials."""
+
+        return cls(
+            username=username,
+            token_id=password_reference,
+            token_secret=password_reference,
+        )
+
+    @property
+    def password_reference(self):
+        """Return the password reference for password-based source types."""
+
+        return self.token_secret
+
 
 @dataclass(frozen=True)
 class SourceConfig:

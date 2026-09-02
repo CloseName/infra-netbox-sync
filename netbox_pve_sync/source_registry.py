@@ -18,7 +18,7 @@ from .source_config import (
 
 SCHEMA_VERSION = 1
 SCHEMA_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]{2,62}$')
-SUPPORTED_SOURCE_TYPES = frozenset({'proxmox'})
+SUPPORTED_SOURCE_TYPES = frozenset({'esxi', 'proxmox'})
 SUPPORTED_SECRET_PROVIDERS = frozenset({'env', 'file'})
 IMMUTABLE_UPDATE_FIELDS = frozenset({'id', 'source_instance', 'source_type'})
 MUTABLE_UPDATE_FIELDS = frozenset({
