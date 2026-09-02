@@ -22,6 +22,7 @@ from tests.sample_data import sample_source_config
 TEST_DSN_VARIABLE = 'INFRA_SYNC_TEST_POSTGRES_DSN'
 TEST_DATABASE_NAME = 'infra_sync_test'
 TEST_SCHEMA_PREFIX = 'infra_sync_test_'
+FAKE_SECRET = 'FAKE_SECRET_VALUE_DO_NOT_STORE'
 
 
 def _config(**changes):
@@ -226,3 +227,41 @@ def test_invalid_update_rolls_back(pg_registry):
 def test_registry_has_no_delete_api(pg_registry):
     registry, _ = pg_registry
     assert not hasattr(registry, 'delete_source')
+
+
+def test_plaintext_secret_settings_are_rejected_before_database_access():
+    registry = _registry_without_database()
+
+    with pytest.raises(ValueError, match='secret values'):
+        registry.create_source(
+            _config(settings={'token_secret_value': FAKE_SECRET})
+        )
+
+
+def test_registry_never_resolves_or_persists_secret_values(
+        pg_registry,
+        monkeypatch,
+):
+    registry, connect = pg_registry
+    monkeypatch.setenv('PVE_REGISTRY_SECRET', FAKE_SECRET)
+    credentials = SourceCredentials(
+        username='sync@pve',
+        token_id=SecretReference(provider='env', key='PVE_REGISTRY_TOKEN_ID'),
+        token_secret=SecretReference(provider='file', key='pve-token-secret'),
+    )
+
+    created = registry.create_source(_config(credentials=credentials))
+
+    with connect() as connection:
+        row_text = connection.execute(
+            sql.SQL(
+                'SELECT row_to_json(source_row)::text AS value '
+                'FROM {} AS source_row WHERE id = %s'
+            ).format(sql.Identifier(registry.schema, 'sources')),
+            (created.id,),
+        ).fetchone()[0]
+
+    assert FAKE_SECRET not in row_text
+    stored = registry.get_source_config(created.id).credentials
+    assert stored.token_id.key == 'PVE_REGISTRY_TOKEN_ID'
+    assert stored.token_secret.key == 'pve-token-secret'
