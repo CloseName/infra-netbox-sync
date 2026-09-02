@@ -7,7 +7,10 @@ from netbox_pve_sync.netbox_planner import NetBoxTargetConfig
 from netbox_pve_sync.proxmox_discovery import discover_hosts
 
 from tests.fakes import FakeProxmox, FakeRecord
-from tests.sample_data import proxmox_responses
+from tests.sample_data import (
+    proxmox_responses,
+    sample_source_config,
+)
 
 
 def test_disappearance_reports_missing_guest_without_delete(
@@ -42,7 +45,8 @@ def test_disappearance_reports_missing_guest_without_delete(
     )
 
     hosts = discover_hosts(
-        FakeProxmox(proxmox_responses())
+        FakeProxmox(proxmox_responses()),
+        sample_source_config(),
     )
     config = NetBoxTargetConfig(
         site_slug='test-site',

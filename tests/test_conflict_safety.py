@@ -16,12 +16,16 @@ from netbox_pve_sync.proxmox_discovery import discover_hosts
 
 from tests.fakes import FakeProxmox, FakeRecord
 from tests.netbox_scenarios import add_target, vm_identity
-from tests.sample_data import proxmox_responses
+from tests.sample_data import (
+    proxmox_responses,
+    sample_source_config,
+)
 
 
 def _hosts():
     return discover_hosts(
-        FakeProxmox(proxmox_responses())
+        FakeProxmox(proxmox_responses()),
+        sample_source_config(),
     )
 
 

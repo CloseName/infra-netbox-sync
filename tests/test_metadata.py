@@ -19,12 +19,16 @@ from netbox_pve_sync.netbox_vm_metadata import (
 from netbox_pve_sync.proxmox_discovery import discover_hosts
 
 from tests.fakes import FakeProxmox
-from tests.sample_data import proxmox_responses
+from tests.sample_data import (
+    proxmox_responses,
+    sample_source_config,
+)
 
 
 def _objects():
     host = discover_hosts(
-        FakeProxmox(proxmox_responses())
+        FakeProxmox(proxmox_responses()),
+        sample_source_config(),
     )[0]
     return (
         host,

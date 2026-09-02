@@ -2,6 +2,49 @@
 
 from proxmoxer import ResourceException
 
+from netbox_pve_sync.source_config import (
+    NetBoxTargetConfig,
+    SecretReference,
+    SourceConfig,
+    SourceCredentials,
+)
+
+
+def sample_source_config(address='pve.test.example'):
+    """Return the explicit single source used by discovery tests."""
+
+    return SourceConfig(
+        id='pve-infra-test',
+        source_instance='pve-infra-test',
+        name='Test Proxmox',
+        source_type='proxmox',
+        address=address,
+        enabled=True,
+        sync_enabled=True,
+        sync_interval_seconds=600,
+        verify_ssl=False,
+        target=NetBoxTargetConfig(
+            site_slug='test-site',
+            device_role_slug='server',
+            platform_slug='proxmox',
+            device_type_slug='generic',
+            cluster_type_slug='proxmox',
+            cluster_name='Test Cluster',
+        ),
+        credentials=SourceCredentials(
+            username='sync@pve',
+            token_id=SecretReference(
+                provider='file',
+                key='/run/secrets/proxmox_token_id',
+            ),
+            token_secret=SecretReference(
+                provider='file',
+                key='/run/secrets/proxmox_token_secret',
+            ),
+        ),
+        settings={},
+    )
+
 
 def proxmox_responses(node_name='node-a', *, agent_available=True):
     """Build one host containing QEMU 100 and LXC 100."""

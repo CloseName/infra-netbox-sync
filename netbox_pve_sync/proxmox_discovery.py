@@ -78,7 +78,7 @@ def _discover_host_interfaces(pve_api, node_name):
 
     return discovered
 
-def discover_hosts(pve_api) -> list[DiscoveredHost]:
+def discover_hosts(pve_api, source_config) -> list[DiscoveredHost]:
     cluster_status = pve_api.cluster.status.get()
 
     node_ips = {}
@@ -146,6 +146,9 @@ def discover_hosts(pve_api) -> list[DiscoveredHost]:
         hosts.append(
             DiscoveredHost(
                 source='proxmox',
+                source_instance=(
+                    source_config.source_instance
+                ),
                 source_id=node_name,
                 original_name=node_name,
                 normalized_name=node_name.upper(),
@@ -159,10 +162,12 @@ def discover_hosts(pve_api) -> list[DiscoveredHost]:
                 virtual_machines=_discover_virtual_machines(
                     pve_api,
                     node_name,
+                    source_config,
                 ),
                 containers=_discover_containers(
                     pve_api,
                     node_name,
+                    source_config,
                 ),
                 interfaces=_discover_host_interfaces(pve_api, node_name),
             )
@@ -210,7 +215,11 @@ def _parse_size_bytes(raw_size: str) -> int:
         return 0
 
 
-def _discover_virtual_machines(pve_api, node_name: str):
+def _discover_virtual_machines(
+        pve_api,
+        node_name: str,
+        source_config,
+):
     from proxmoxer import ResourceException
 
     from .discovery import (
@@ -356,6 +365,9 @@ def _discover_virtual_machines(pve_api, node_name: str):
         discovered_vms.append(
             DiscoveredVirtualMachine(
                 source='proxmox',
+                source_instance=(
+                    source_config.source_instance
+                ),
                 source_id=f'proxmox:{node_name}:{vmid}',
                 node_source_id=node_name,
                 vmid=vmid,
@@ -376,7 +388,11 @@ def _discover_virtual_machines(pve_api, node_name: str):
     return discovered_vms
 
 
-def _discover_containers(pve_api, node_name: str):
+def _discover_containers(
+        pve_api,
+        node_name: str,
+        source_config,
+):
     from .discovery import (
         DiscoveredContainer,
         DiscoveredInterface,
@@ -467,6 +483,9 @@ def _discover_containers(pve_api, node_name: str):
         discovered_containers.append(
             DiscoveredContainer(
                 source='proxmox',
+                source_instance=(
+                    source_config.source_instance
+                ),
                 source_id=f'proxmox:{node_name}:lxc:{vmid}',
                 node_source_id=node_name,
 

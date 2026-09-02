@@ -82,7 +82,11 @@ def _get_sync_mode() -> str:
     return sync_mode
 
 
-def _run_inventory(_pve_api: ProxmoxAPI, _nb_objects: dict) -> None:
+def _run_inventory(
+        _pve_api: ProxmoxAPI,
+        _nb_objects: dict,
+        source_config: SourceConfig,
+) -> None:
     """
     Read-only inventory mode.
 
@@ -102,7 +106,10 @@ def _run_inventory(_pve_api: ProxmoxAPI, _nb_objects: dict) -> None:
     print(f'  VLANs:            {len(_nb_objects["vlans"])}')
     print()
 
-    hosts = discover_hosts(_pve_api)
+    hosts = discover_hosts(
+        _pve_api,
+        source_config,
+    )
 
     print(f'Discovered infrastructure hosts: {len(hosts)}')
     print()
@@ -110,6 +117,7 @@ def _run_inventory(_pve_api: ProxmoxAPI, _nb_objects: dict) -> None:
     for host in hosts:
         print(f'HOST {host.normalized_name}')
         print(f'  source:             {host.source}')
+        print(f'  source_instance:    {host.source_instance}')
         print(f'  source_id:          {host.source_id}')
         print(f'  original_name:      {host.original_name}')
         print(f'  management_ip:      {host.management_ip or "-"}')
@@ -864,11 +872,15 @@ def main():
         _run_inventory(
             pve_api,
             nb_objects,
+            source_config,
         )
         return
 
     if sync_mode == 'plan':
-        hosts = discover_hosts(pve_api)
+        hosts = discover_hosts(
+            pve_api,
+            source_config,
+        )
 
         target_config = source_config.target
 
@@ -881,7 +893,10 @@ def main():
         return
 
     if sync_mode == 'apply':
-        hosts = discover_hosts(pve_api)
+        hosts = discover_hosts(
+            pve_api,
+            source_config,
+        )
 
         target_config = source_config.target
 

@@ -50,6 +50,7 @@ class DiscoveredHostInterface:
 @dataclass
 class DiscoveredHost:
     source: str
+    source_instance: str
     source_id: str
 
     original_name: str
@@ -89,6 +90,7 @@ class DiscoveredInterface:
 @dataclass
 class DiscoveredVirtualMachine:
     source: str
+    source_instance: str
     source_id: str
     node_source_id: str
 
@@ -108,6 +110,7 @@ class DiscoveredVirtualMachine:
 @dataclass
 class DiscoveredContainer:
     source: str
+    source_instance: str
     source_id: str
     node_source_id: str
 

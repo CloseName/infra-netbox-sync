@@ -3,12 +3,16 @@
 from netbox_pve_sync.proxmox_discovery import discover_hosts
 
 from tests.fakes import FakeProxmox
-from tests.sample_data import proxmox_responses
+from tests.sample_data import (
+    proxmox_responses,
+    sample_source_config,
+)
 
 
 def test_discovers_host_qemu_lxc_storage_disks_and_networks():
     hosts = discover_hosts(
-        FakeProxmox(proxmox_responses())
+        FakeProxmox(proxmox_responses()),
+        sample_source_config(),
     )
 
     assert len(hosts) == 1
@@ -69,7 +73,8 @@ def test_qemu_agent_unavailable_retains_nic_and_omits_ip_addresses():
     hosts = discover_hosts(
         FakeProxmox(
             proxmox_responses(agent_available=False)
-        )
+        ),
+        sample_source_config(),
     )
 
     vm = hosts[0].virtual_machines[0]
@@ -81,10 +86,12 @@ def test_qemu_agent_unavailable_retains_nic_and_omits_ip_addresses():
 
 def test_v1_identity_changes_after_live_migration_current_bug():
     before = discover_hosts(
-        FakeProxmox(proxmox_responses('node-a'))
+        FakeProxmox(proxmox_responses('node-a')),
+        sample_source_config(),
     )[0].virtual_machines[0]
     after = discover_hosts(
-        FakeProxmox(proxmox_responses('node-b'))
+        FakeProxmox(proxmox_responses('node-b')),
+        sample_source_config(),
     )[0].virtual_machines[0]
 
     # Characterization only: PHASE 2 must reverse this expectation.

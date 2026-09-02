@@ -7,13 +7,17 @@ from netbox_pve_sync.proxmox_discovery import discover_hosts
 
 from tests.fakes import FakeProxmox, FakeRecord
 from tests.netbox_scenarios import add_target, vm_identity
-from tests.sample_data import proxmox_responses
+from tests.sample_data import (
+    proxmox_responses,
+    sample_source_config,
+)
 
 
 def test_second_vm_apply_has_zero_create_and_update(fake_netbox):
     _, _, cluster, config = add_target(fake_netbox)
     hosts = discover_hosts(
-        FakeProxmox(proxmox_responses())
+        FakeProxmox(proxmox_responses()),
+        sample_source_config(),
     )
     original = hosts[0].virtual_machines[0]
     additional = deepcopy(original)
