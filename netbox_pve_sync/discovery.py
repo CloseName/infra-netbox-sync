@@ -86,6 +86,7 @@ class DiscoveredInterface:
     bridge: Optional[str]
     vlan_id: Optional[int]
     ip_addresses: list[str] = field(default_factory=list)
+    external_id: Optional[str] = None
 
 
 @dataclass
@@ -96,7 +97,7 @@ class DiscoveredVirtualMachine:
     source_id: str
     node_source_id: str
 
-    vmid: int
+    vmid: object
     original_name: str
     normalized_name: str
 
@@ -107,6 +108,7 @@ class DiscoveredVirtualMachine:
 
     disks: list[DiscoveredVirtualDisk] = field(default_factory=list)
     interfaces: list[DiscoveredInterface] = field(default_factory=list)
+    external_id: Optional[str] = None
 
 
 @dataclass
