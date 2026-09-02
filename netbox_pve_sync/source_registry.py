@@ -1,7 +1,7 @@
 """PostgreSQL storage foundation for source configuration references."""
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 
 from psycopg import errors, sql
@@ -20,6 +20,11 @@ SCHEMA_VERSION = 1
 SCHEMA_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]{2,62}$')
 SUPPORTED_SOURCE_TYPES = frozenset({'proxmox'})
 SUPPORTED_SECRET_PROVIDERS = frozenset({'env', 'file'})
+IMMUTABLE_UPDATE_FIELDS = frozenset({'id', 'source_instance', 'source_type'})
+MUTABLE_UPDATE_FIELDS = frozenset({
+    'name', 'address', 'enabled', 'sync_enabled', 'sync_interval_seconds',
+    'verify_ssl', 'target', 'credentials', 'legacy_identity_owner', 'settings',
+})
 
 
 @dataclass(frozen=True)
@@ -50,6 +55,10 @@ class SourceRegistryError(RuntimeError):
 
 class SourceConflictError(ValueError):
     """A database uniqueness constraint rejected a source identity."""
+
+
+class SourceConcurrentUpdateError(SourceRegistryError):
+    """Optimistic concurrency detected a stale source record."""
 
 
 class SourceRegistry:
@@ -325,3 +334,71 @@ class SourceRegistry:
 
         record = self.get_source(source_id)
         return None if record is None else record.to_source_config()
+
+    @staticmethod
+    def _update_parameters(config, expected_updated_at):
+        target = config.target
+        credentials = config.credentials
+        return (
+            config.name, config.address, config.enabled, config.sync_enabled,
+            config.sync_interval_seconds, config.verify_ssl, target.site_slug,
+            target.device_role_slug, target.platform_slug, target.device_type_slug,
+            target.cluster_type_slug, target.cluster_name, credentials.username,
+            credentials.token_id.provider, credentials.token_id.key,
+            credentials.token_secret.provider, credentials.token_secret.key,
+            config.legacy_identity_owner, Jsonb(dict(config.settings)),
+            config.id, expected_updated_at,
+        )
+
+    def update_source(self, source_id, **changes):
+        """Update mutable fields with transactional optimistic concurrency."""
+
+        forbidden = IMMUTABLE_UPDATE_FIELDS.intersection(changes)
+        if forbidden:
+            raise ValueError(
+                'immutable source fields cannot be updated: '
+                + ', '.join(sorted(forbidden))
+            )
+        unknown = set(changes).difference(MUTABLE_UPDATE_FIELDS)
+        if unknown:
+            raise ValueError('unsupported source update fields: ' + repr(sorted(unknown)))
+
+        existing = self.get_source(source_id)
+        if existing is None:
+            raise KeyError(source_id)
+        if not changes:
+            return existing
+
+        candidate = replace(existing.config, **changes)
+        self._validate_config(candidate)
+        if candidate == existing.config:
+            return existing
+
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        '''
+                        UPDATE {} SET
+                            name = %s, address = %s, enabled = %s,
+                            sync_enabled = %s, sync_interval_seconds = %s,
+                            verify_ssl = %s, site_slug = %s,
+                            device_role_slug = %s, platform_slug = %s,
+                            device_type_slug = %s, cluster_type_slug = %s,
+                            cluster_name = %s, username = %s,
+                            token_id_provider = %s, token_id_key = %s,
+                            token_secret_provider = %s, token_secret_key = %s,
+                            legacy_identity_owner = %s, settings = %s,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = %s AND updated_at = %s
+                        RETURNING *
+                        '''
+                    ).format(self._table('sources')),
+                    self._update_parameters(candidate, existing.updated_at),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise SourceConcurrentUpdateError(
+                        'source changed during transactional update'
+                    )
+        return self._row_to_record(row)
