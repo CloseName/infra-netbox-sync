@@ -195,7 +195,7 @@ def _vm_disks_and_interfaces(vm, host):
 
 def _vm_autostart(vm, host):
     for item in _items(_value(host, 'config.autoStart.powerInfo', ())):
-        if getattr(item, 'key', None) is vm:
+        if getattr(item, 'key', None) == vm:
             return getattr(item, 'startAction', None) not in (None, 'none')
     return False
 
@@ -236,8 +236,7 @@ def _virtual_machines(host, source_config, host_id):
 def _walk_hosts(entity):
     if hasattr(entity, 'vm') and hasattr(entity, 'hardware'):
         yield entity
-    for host in _items(getattr(entity, 'host', ())):
-        yield host
+    yield from _items(getattr(entity, 'host', ()))
     for child in _items(getattr(entity, 'childEntity', ())):
         yield from _walk_hosts(child)
 

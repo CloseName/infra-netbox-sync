@@ -124,6 +124,23 @@ def test_vm_rename_preserves_uuid_and_nic_identity():
     ).kind == 'vm-nic'
 
 
+def test_same_vm_uuid_is_isolated_by_source_instance():
+    first = discover_hosts(fake_esxi_service(), esxi_config('esxi-a'))[0]
+    second = discover_hosts(fake_esxi_service(), esxi_config('esxi-b'))[0]
+    first_vm = first.virtual_machines[0]
+    second_vm = second.virtual_machines[0]
+
+    assert first_vm.external_id == second_vm.external_id
+    assert virtual_machine_source_identity(first_vm) != (
+        virtual_machine_source_identity(second_vm)
+    )
+    assert virtual_machine_nic_source_identity(
+        first_vm, first_vm.interfaces[0],
+    ) != virtual_machine_nic_source_identity(
+        second_vm, second_vm.interfaces[0],
+    )
+
+
 @pytest.mark.parametrize('verify_ssl', (True, False))
 def test_esxi_client_honors_tls_flag_and_disconnects(verify_ssl):
     connected = []
@@ -144,6 +161,22 @@ def test_esxi_client_honors_tls_flag_and_disconnects(verify_ssl):
     assert connected == [(
         config.address, 'root', 'fake-password', verify_ssl,
     )]
+    assert disconnected == [service]
+
+
+def test_esxi_connection_test_reports_success_and_disconnects():
+    service = fake_esxi_service()
+    disconnected = []
+    client = EsxiClient(
+        resolver=FakeResolver(),
+        connector=lambda *_args: service,
+        disconnecter=disconnected.append,
+    )
+
+    result = check_source_connection(esxi_config(), client=client)
+
+    assert result.success is True
+    assert result.summary == 'ESXi connection test succeeded'
     assert disconnected == [service]
 
 
