@@ -233,12 +233,33 @@ def _virtual_machines(host, source_config, host_id):
     return result
 
 
-def _walk_hosts(entity):
+def _walk_hosts(entity, seen=None):
+    if entity is None:
+        return
+    if seen is None:
+        seen = set()
+
+    managed_id = getattr(entity, '_moId', None)
+    entity_key = (
+        ('managed-object', str(managed_id))
+        if managed_id
+        else ('python-object', id(entity))
+    )
+    if entity_key in seen:
+        return
+    seen.add(entity_key)
+
     if hasattr(entity, 'vm') and hasattr(entity, 'hardware'):
         yield entity
-    yield from _items(getattr(entity, 'host', ()))
+        return
+
+    host_folder = getattr(entity, 'hostFolder', None)
+    if host_folder is not None:
+        yield from _walk_hosts(host_folder, seen)
+    for host in _items(getattr(entity, 'host', ())):
+        yield from _walk_hosts(host, seen)
     for child in _items(getattr(entity, 'childEntity', ())):
-        yield from _walk_hosts(child)
+        yield from _walk_hosts(child, seen)
 
 
 def discover_hosts(service_instance, source_config):

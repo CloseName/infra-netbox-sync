@@ -19,7 +19,7 @@ from netbox_pve_sync.source_identity import (
     virtual_machine_source_identity,
 )
 
-from tests.fakes.esxi import fake_esxi_service
+from tests.fakes.esxi import fake_esxi_service, ns
 from tests.sample_data import sample_source_config
 
 
@@ -73,6 +73,60 @@ def test_esxi_host_vm_datastore_disk_nic_and_tools_ip_mapping():
     assert vm.interfaces[0].external_id == '4000'
     assert vm.interfaces[0].vlan_id == 120
     assert vm.interfaces[0].ip_addresses == ['192.0.2.50/24']
+
+
+def _esxi_67_inventory(host, vm_folder_children=()):
+    compute_resource = ns(
+        _moId='ha-compute-res',
+        name=host.name,
+        host=[host],
+    )
+    host_folder = ns(
+        _moId='ha-folder-host',
+        name='host',
+        childEntity=[compute_resource],
+    )
+    vm_folder = ns(
+        _moId='ha-folder-vm',
+        name='vm',
+        childEntity=list(vm_folder_children),
+    )
+    datacenter = ns(
+        _moId='ha-datacenter',
+        name='ha-datacenter',
+        hostFolder=host_folder,
+        vmFolder=vm_folder,
+    )
+    root = ns(
+        _moId='ha-folder-root',
+        name='root',
+        childEntity=[datacenter],
+    )
+    return ns(RetrieveContent=lambda: ns(rootFolder=root))
+
+
+def test_standalone_esxi_67_host_folder_inventory_is_discovered():
+    host = fake_esxi_service().host
+
+    discovered = discover_hosts(_esxi_67_inventory(host), esxi_config())
+
+    assert len(discovered) == 1
+    assert discovered[0].original_name == 'esxi-a.example.test'
+    assert discovered[0].source_id == 'host-uuid-a'
+
+
+def test_vm_folder_objects_are_not_interpreted_as_hosts():
+    host = fake_esxi_service().host
+    decoy = fake_esxi_service().host
+    decoy.name = 'vm-folder-decoy.example.test'
+    decoy.hardware.systemInfo.uuid = 'vm-folder-decoy-uuid'
+
+    discovered = discover_hosts(
+        _esxi_67_inventory(host, vm_folder_children=[decoy]),
+        esxi_config(),
+    )
+
+    assert [item.source_id for item in discovered] == ['host-uuid-a']
 
 
 @pytest.mark.parametrize(
