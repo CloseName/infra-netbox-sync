@@ -225,6 +225,29 @@ def _managed_metadata(
     return desired, changed
 
 
+def build_vm_create_fields(
+        discovered_vm,
+        cluster,
+        desired_custom_fields=None,
+):
+    """Build the shared managed field set for a newly discovered VM."""
+
+    if desired_custom_fields is None:
+        desired_custom_fields, _ = _managed_metadata(
+            discovered_vm, None,
+        )
+    return {
+        'name': discovered_vm.original_name,
+        'cluster': cluster.id,
+        'status': _desired_status(discovered_vm),
+        'vcpus': int(discovered_vm.vcpus),
+        'memory': _desired_memory(discovered_vm),
+        'disk': _desired_disk(discovered_vm),
+        'start_on_boot': _desired_start_on_boot(discovered_vm),
+        'custom_fields': desired_custom_fields,
+    }
+
+
 def _vm_changes(
         existing_vm,
         discovered_vm,
@@ -703,22 +726,11 @@ def apply_virtual_machines(
             created_vm = (
                 nb_api.virtualization
                 .virtual_machines
-                .create(
-                    name=vm.original_name,
-                    cluster=cluster.id,
-                    status=_desired_status(vm),
-                    vcpus=int(vm.vcpus),
-                    memory=_desired_memory(vm),
-                    disk=_desired_disk(vm),
-                    start_on_boot=(
-                        _desired_start_on_boot(
-                            vm
-                        )
-                    ),
-                    custom_fields=context[
-                        'desired_custom_fields'
-                    ],
-                )
+                .create(**build_vm_create_fields(
+                    vm,
+                    cluster,
+                    context['desired_custom_fields'],
+                ))
             )
 
             created += 1
