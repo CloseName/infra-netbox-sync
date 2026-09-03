@@ -70,11 +70,16 @@ def build_vm_custom_fields(
     existing = dict(
         existing_custom_fields or {}
     )
+    normalized = dict(existing)
+    if normalized.get('sync_identities') is None:
+        normalized['sync_identities'] = []
+    if normalized.get('sync_original_names') is None:
+        normalized['sync_original_names'] = {}
 
     desired_identity = virtual_machine_source_identity(vm)
-    merged_identities = merge_source_identities(existing, desired_identity)
+    merged_identities = merge_source_identities(normalized, desired_identity)
     merged_original_names = merge_original_name(
-        existing, desired_identity, vm.original_name,
+        normalized, desired_identity, vm.original_name,
     )
 
     result = dict(existing)

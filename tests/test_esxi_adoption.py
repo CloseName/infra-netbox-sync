@@ -12,6 +12,7 @@ from netbox_pve_sync.esxi_adoption import (
     build_esxi_adoption_plan,
 )
 from netbox_pve_sync.esxi_discovery import discover_hosts
+from netbox_pve_sync.netbox_vm_planner import plan_virtual_machines
 from netbox_pve_sync.source_config import SecretReference, SourceCredentials
 from netbox_pve_sync.source_identity import virtual_machine_source_identity
 
@@ -324,6 +325,37 @@ def test_preflight_never_writes(fake_netbox):
     assert _item(plan, 'vm').classification == (
         AdoptionClassification.REVIEW_REQUIRED
     )
+    assert fake_netbox.mutations == []
+
+
+def test_name_only_esxi_vm_shared_plan_handles_legacy_null_metadata(
+        fake_netbox,
+        capsys,
+):
+    _, cluster = _target(fake_netbox)
+    existing = _add_vm(
+        fake_netbox,
+        cluster,
+        record_id=10,
+        name='APP-VM',
+        custom_fields={
+            'sync_identities': None,
+            'sync_original_names': None,
+            'operator_note': 'preserve me',
+        },
+    )
+    hosts = _inventory()
+    adoption = build_esxi_adoption_plan(fake_netbox, hosts, _config())
+
+    plan_virtual_machines(fake_netbox, hosts[0], cluster)
+
+    assert _item(adoption, 'vm').classification == (
+        AdoptionClassification.REVIEW_REQUIRED
+    )
+    assert 'ADOPT CANDIDATE' in capsys.readouterr().out
+    assert existing.custom_fields['sync_identities'] is None
+    assert existing.custom_fields['sync_original_names'] is None
+    assert existing.custom_fields['operator_note'] == 'preserve me'
     assert fake_netbox.mutations == []
 
 

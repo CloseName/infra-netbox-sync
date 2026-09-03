@@ -1,5 +1,7 @@
 """Characterize legacy identity and managed metadata behavior."""
 
+import pytest
+
 from netbox_pve_sync.netbox_lxc_metadata import (
     build_lxc_custom_fields,
     matches_lxc_sync_identity,
@@ -110,3 +112,48 @@ def test_metadata_builders_preserve_unmanaged_custom_fields():
         result['operator_note'] == 'must survive sync'
         for result in results
     )
+
+
+def test_vm_metadata_normalizes_legacy_null_identity_fields():
+    _, vm, _ = _objects()
+    result = build_vm_custom_fields(vm, {
+        'sync_identities': None,
+        'sync_original_names': None,
+        'operator_note': 'preserve me',
+    })
+
+    assert isinstance(result['sync_identities'], list)
+    assert isinstance(result['sync_original_names'], dict)
+    assert result['operator_note'] == 'preserve me'
+    assert matches_vm_sync_identity(result, vm)
+
+
+def test_vm_metadata_normalizes_missing_identity_fields():
+    _, vm, _ = _objects()
+    result = build_vm_custom_fields(vm, {'operator_note': 'preserve me'})
+
+    assert isinstance(result['sync_identities'], list)
+    assert isinstance(result['sync_original_names'], dict)
+    assert result['operator_note'] == 'preserve me'
+
+
+@pytest.mark.parametrize(
+    ('field_name', 'value', 'message'),
+    (
+        ('sync_identities', 'invalid', 'JSON list'),
+        ('sync_identities', {}, 'JSON list'),
+        ('sync_identities', 42, 'JSON list'),
+        ('sync_original_names', [], 'JSON object'),
+        ('sync_original_names', 'invalid', 'JSON object'),
+        ('sync_original_names', 42, 'JSON object'),
+    ),
+)
+def test_vm_metadata_rejects_malformed_non_null_identity_fields(
+        field_name,
+        value,
+        message,
+):
+    _, vm, _ = _objects()
+
+    with pytest.raises(ValueError, match=message):
+        build_vm_custom_fields(vm, {field_name: value})
