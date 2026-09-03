@@ -1,5 +1,7 @@
 """Map standalone ESXi API inventory into generic discovery models."""
 
+from uuid import UUID
+
 from .discovery import (
     DiscoveredCPU,
     DiscoveredDisk,
@@ -34,6 +36,32 @@ def _stable_id(obj, *paths):
     if value:
         return str(value)
     raise ValueError('ESXi object has no stable external identifier')
+
+
+def _validated_host_hardware_uuid(value):
+    if not value:
+        return None
+    candidate = str(value).strip()
+    try:
+        parsed = UUID(candidate)
+    except (AttributeError, ValueError):
+        return None
+    if str(parsed) != candidate.casefold():
+        return None
+    if sum(byte != 0 for byte in parsed.bytes) < len(parsed.bytes) // 2:
+        return None
+    return candidate
+
+
+def _host_external_id(host):
+    for path in ('hardware.systemInfo.uuid', 'summary.hardware.uuid'):
+        candidate = _validated_host_hardware_uuid(_value(host, path))
+        if candidate is not None:
+            return candidate
+    managed_id = getattr(host, '_moId', None)
+    if managed_id:
+        return str(managed_id)
+    raise ValueError('ESXi host has no usable stable external identifier')
 
 
 def _management_ip(host):
@@ -269,7 +297,7 @@ def discover_hosts(service_instance, source_config):
     root = getattr(content, 'rootFolder', content)
     result = []
     for host in _walk_hosts(root):
-        host_id = _stable_id(host, 'hardware.systemInfo.uuid', 'summary.hardware.uuid')
+        host_id = _host_external_id(host)
         name = str(getattr(host, 'name', host_id))
         product = _value(host, 'summary.config.product')
         version = getattr(product, 'version', None)

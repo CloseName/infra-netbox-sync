@@ -15,6 +15,7 @@ from netbox_pve_sync.orchestrator import run_sources
 from netbox_pve_sync.source_config import SecretReference, SourceCredentials
 from netbox_pve_sync.source_executor import SourceExecutorDispatch
 from netbox_pve_sync.source_identity import (
+    host_source_identity,
     virtual_machine_nic_source_identity,
     virtual_machine_source_identity,
 )
@@ -55,7 +56,7 @@ def test_esxi_host_vm_datastore_disk_nic_and_tools_ip_mapping():
 
     assert host.source == 'esxi'
     assert host.source_instance == 'esxi-a'
-    assert host.source_id == 'host-uuid-a'
+    assert host.source_id == '420f37d2-7a3b-4c1d-8e9f-001122334455'
     assert host.management_ip == '192.0.2.10'
     assert host.hypervisor == 'VMware ESXi'
     assert host.hypervisor_version == '8.0.3 build-24022510'
@@ -112,7 +113,7 @@ def test_standalone_esxi_67_host_folder_inventory_is_discovered():
 
     assert len(discovered) == 1
     assert discovered[0].original_name == 'esxi-a.example.test'
-    assert discovered[0].source_id == 'host-uuid-a'
+    assert discovered[0].source_id == '420f37d2-7a3b-4c1d-8e9f-001122334455'
 
 
 def test_vm_folder_objects_are_not_interpreted_as_hosts():
@@ -126,7 +127,66 @@ def test_vm_folder_objects_are_not_interpreted_as_hosts():
         esxi_config(),
     )
 
-    assert [item.source_id for item in discovered] == ['host-uuid-a']
+    assert [item.source_id for item in discovered] == [
+        '420f37d2-7a3b-4c1d-8e9f-001122334455'
+    ]
+
+
+def test_valid_esxi_host_hardware_uuid_is_used():
+    discovered = discover_hosts(fake_esxi_service(), esxi_config())[0]
+
+    assert discovered.source_id == '420f37d2-7a3b-4c1d-8e9f-001122334455'
+
+
+@pytest.mark.parametrize(
+    'hardware_uuid',
+    (
+        '',
+        '00000000-0000-0000-0000-000000000000',
+        '00000000-0000-0000-0000-ac1f6b021cb0',
+        'not-a-uuid',
+    ),
+)
+def test_unusable_esxi_host_hardware_uuid_falls_back_to_managed_id(
+        hardware_uuid,
+):
+    service = fake_esxi_service()
+    service.host.hardware.systemInfo.uuid = hardware_uuid
+    service.host._moId = 'ha-host'
+
+    discovered = discover_hosts(service, esxi_config())[0]
+
+    assert discovered.source_id == 'ha-host'
+
+
+def test_same_managed_host_id_is_isolated_by_source_instance():
+    first_service = fake_esxi_service()
+    second_service = fake_esxi_service()
+    for service in (first_service, second_service):
+        service.host.hardware.systemInfo.uuid = (
+            '00000000-0000-0000-0000-ac1f6b021cb0'
+        )
+        service.host._moId = 'ha-host'
+
+    first = discover_hosts(first_service, esxi_config('esxi-a'))[0]
+    second = discover_hosts(second_service, esxi_config('esxi-b'))[0]
+
+    assert first.source_id == second.source_id == 'ha-host'
+    assert host_source_identity(first) != host_source_identity(second)
+
+
+def test_host_uuid_validation_does_not_change_vm_identity():
+    service = fake_esxi_service()
+    service.host.hardware.systemInfo.uuid = (
+        '00000000-0000-0000-0000-ac1f6b021cb0'
+    )
+    service.host._moId = 'ha-host'
+
+    discovered = discover_hosts(service, esxi_config())[0]
+
+    assert discovered.virtual_machines[0].external_id == (
+        '503c5ad7-0000-1111-2222-0123456789ab'
+    )
 
 
 @pytest.mark.parametrize(

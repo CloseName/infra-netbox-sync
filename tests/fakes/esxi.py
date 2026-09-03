@@ -96,7 +96,7 @@ def fake_esxi_service(
         _moId='host-10',
         name='esxi-a.example.test',
         hardware=ns(
-            systemInfo=ns(uuid='host-uuid-a'),
+            systemInfo=ns(uuid='420f37d2-7a3b-4c1d-8e9f-001122334455'),
             cpuInfo=cpu_info,
             cpuPkg=cpu_packages,
             memorySize=128 * 1024**3,
