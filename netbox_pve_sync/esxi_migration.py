@@ -55,6 +55,8 @@ class InterfaceCandidate:
     conflicts: tuple[str, ...]
     current_ips: tuple[str, ...]
     current_macs: tuple[str, ...]
+    current_ip_assignments: tuple[tuple[object, str], ...] = ()
+    current_mac_assignments: tuple[tuple[object, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -237,6 +239,27 @@ class _NetworkOwnership:
         }
         return tuple(sorted(ips)), tuple(sorted(macs))
 
+    def current_assignments(self, kind, interface):
+        """Return immutable record-id/address evidence for one interface."""
+
+        expected_type = self._assigned_type(kind)
+        ips = {
+            (record_id, address)
+            for address, assignments in self.ip_assignments.items()
+            for assigned_type, assigned_id, record_id in assignments
+            if assigned_type == expected_type and assigned_id == interface.id
+        }
+        macs = {
+            (record_id, address)
+            for address, assignments in self.mac_assignments.items()
+            for assigned_type, assigned_id, record_id in assignments
+            if assigned_type == expected_type and assigned_id == interface.id
+        }
+        return (
+            tuple(sorted(ips, key=lambda item: (str(item[0]), item[1]))),
+            tuple(sorted(macs, key=lambda item: (str(item[0]), item[1]))),
+        )
+
     def candidate(self, kind, interface, signals, conflicts=()):
         """Build immutable evidence for an existing NetBox interface."""
 
@@ -244,6 +267,9 @@ class _NetworkOwnership:
         parent_id = _object_id(_serialized(interface).get(relation))
         parent = self.parents[kind].get(parent_id)
         ips, macs = self._current_network(kind, interface)
+        ip_assignments, mac_assignments = self.current_assignments(
+            kind, interface,
+        )
         return InterfaceCandidate(
             parent_id=parent_id,
             parent_name=_record_name(parent) if parent else f'id={parent_id}',
@@ -253,6 +279,8 @@ class _NetworkOwnership:
             conflicts=tuple(sorted(conflicts)),
             current_ips=ips,
             current_macs=macs,
+            current_ip_assignments=ip_assignments,
+            current_mac_assignments=mac_assignments,
         )
 
 
