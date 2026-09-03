@@ -190,6 +190,18 @@ def _current_primary_ip_id(vm):
     )
 
 
+def resolve_vm_network_target(config):
+    """Resolve target fields from SourceConfig or the legacy flat target."""
+
+    target = getattr(config, 'target', None) or config
+    try:
+        return target.site_slug, target.cluster_name
+    except AttributeError as exc:
+        raise VMNetworkApplyError(
+            'VM network target configuration is incomplete'
+        ) from exc
+
+
 def apply_vm_networks(
         nb_api,
         hosts,
@@ -197,8 +209,9 @@ def apply_vm_networks(
         *,
         confirmed=False,
 ):
+    site_slug, cluster_name = resolve_vm_network_target(config)
     site = nb_api.dcim.sites.get(
-        slug=config.site_slug
+        slug=site_slug
     )
 
     if site is None:
@@ -210,7 +223,7 @@ def apply_vm_networks(
         nb_api.virtualization
         .clusters
         .filter(
-            name=config.cluster_name
+            name=cluster_name
         )
     )
 
@@ -292,8 +305,10 @@ def apply_vm_networks(
             ).append(mac)
 
     ips_by_address = {}
+    ips_by_id = {}
 
     for ip in all_ips:
+        ips_by_id[ip.id] = ip
         address = ip.serialize().get(
             'address'
         )
@@ -587,9 +602,32 @@ def apply_vm_networks(
             )
 
             if len(unique_ipv4) == 1:
+                candidate = unique_ipv4[0]
+                current_primary = _current_primary_ip_id(netbox_vm)
+                candidate_records = ips_by_address.get(candidate, ())
+                candidate_id = (
+                    candidate_records[0].id
+                    if len(candidate_records) == 1
+                    else None
+                )
+                if (
+                        current_primary is not None
+                        and current_primary != candidate_id
+                ):
+                    current_record = ips_by_id.get(current_primary)
+                    current_address = (
+                        current_record.serialize().get('address')
+                        if current_record is not None
+                        else None
+                    )
+                    raise VMNetworkApplyError(
+                        'Existing primary IPv4 conflicts on '
+                        f'{vm.original_name}: current={current_address!r} '
+                        f'discovered={candidate!r}'
+                    )
                 vm_context[
                     'primary_candidate'
-                ] = unique_ipv4[0]
+                ] = candidate
 
             contexts.append(vm_context)
 
