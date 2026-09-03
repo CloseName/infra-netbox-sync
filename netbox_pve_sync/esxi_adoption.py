@@ -21,6 +21,7 @@ class AdoptionClassification(str, Enum):
 
     MANAGED = 'MANAGED'
     SAFE_ADOPTION_CANDIDATE = 'SAFE_ADOPTION_CANDIDATE'
+    REVIEW_REQUIRED = 'REVIEW_REQUIRED'
     AMBIGUOUS = 'AMBIGUOUS'
     UNMATCHED = 'UNMATCHED'
 
@@ -320,7 +321,15 @@ def _classify(discovered, kind, identity, all_records, target_records, network):
         classification = AdoptionClassification.UNMATCHED
         selected_id = None
     elif len(candidates) == 1 and not unsafe:
-        classification = AdoptionClassification.SAFE_ADOPTION_CANDIDATE
+        has_network_evidence = any(
+            signal.startswith(('ip:', 'mac:'))
+            for signal in candidates[0].signals
+        )
+        classification = (
+            AdoptionClassification.SAFE_ADOPTION_CANDIDATE
+            if has_network_evidence
+            else AdoptionClassification.REVIEW_REQUIRED
+        )
         selected_id = candidates[0].object_id
     else:
         classification = AdoptionClassification.AMBIGUOUS

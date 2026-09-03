@@ -221,7 +221,7 @@ def test_mac_is_evidence_only_when_present_on_legacy_object(fake_netbox):
         fake_netbox,
         cluster,
         record_id=10,
-        name='LEGACY-NAME',
+        name='APP-VM',
     )
     interface = fake_netbox.virtualization.interfaces.add(FakeRecord(
         id=20,
@@ -242,7 +242,10 @@ def test_mac_is_evidence_only_when_present_on_legacy_object(fake_netbox):
     )
 
     assert item.classification == AdoptionClassification.SAFE_ADOPTION_CANDIDATE
-    assert item.candidates[0].signals == ('mac:00:50:56:AA:BB:CC',)
+    assert item.candidates[0].signals == (
+        'exact_name',
+        'mac:00:50:56:AA:BB:CC',
+    )
 
 
 def test_name_candidate_and_different_ip_candidate_are_ambiguous(fake_netbox):
@@ -271,7 +274,7 @@ def test_name_candidate_and_different_ip_candidate_are_ambiguous(fake_netbox):
     assert {candidate.object_id for candidate in item.candidates} == {10, 11}
 
 
-def test_case_only_name_difference_is_safe_candidate(fake_netbox):
+def test_case_only_exact_name_requires_review(fake_netbox):
     _, cluster = _target(fake_netbox)
     _add_vm(
         fake_netbox,
@@ -285,7 +288,7 @@ def test_case_only_name_difference_is_safe_candidate(fake_netbox):
         'vm',
     )
 
-    assert item.classification == AdoptionClassification.SAFE_ADOPTION_CANDIDATE
+    assert item.classification == AdoptionClassification.REVIEW_REQUIRED
     assert item.candidates[0].signals == ('exact_name',)
 
 
@@ -319,7 +322,7 @@ def test_preflight_never_writes(fake_netbox):
     plan = build_esxi_adoption_plan(fake_netbox, _inventory(), _config())
 
     assert _item(plan, 'vm').classification == (
-        AdoptionClassification.SAFE_ADOPTION_CANDIDATE
+        AdoptionClassification.REVIEW_REQUIRED
     )
     assert fake_netbox.mutations == []
 
@@ -367,6 +370,7 @@ def test_confirmed_adoption_only_merges_identity_metadata(fake_netbox):
         cluster,
         record_id=10,
         name='app-vm',
+        ip_address='192.0.2.50/24',
         custom_fields={
             'operator_note': 'preserve me',
             'legacy_flag': True,
@@ -401,7 +405,11 @@ def test_confirmed_adoption_only_merges_identity_metadata(fake_netbox):
 def test_changed_candidate_after_preflight_blocks_all_writes(fake_netbox):
     _, cluster = _target(fake_netbox)
     existing = _add_vm(
-        fake_netbox, cluster, record_id=10, name='APP-VM',
+        fake_netbox,
+        cluster,
+        record_id=10,
+        name='APP-VM',
+        ip_address='192.0.2.50/24',
     )
     plan = build_esxi_adoption_plan(fake_netbox, _inventory(), _config())
     existing.name = 'CHANGED-AFTER-PREFLIGHT'
@@ -411,6 +419,63 @@ def test_changed_candidate_after_preflight_blocks_all_writes(fake_netbox):
 
     assert fake_netbox.mutations == []
     assert existing.custom_fields == {}
+
+
+def test_review_only_candidate_is_never_written(fake_netbox):
+    _, cluster = _target(fake_netbox)
+    existing = _add_vm(
+        fake_netbox, cluster, record_id=10, name='APP-VM',
+    )
+    plan = build_esxi_adoption_plan(fake_netbox, _inventory(), _config())
+
+    assert _item(plan, 'vm').classification == (
+        AdoptionClassification.REVIEW_REQUIRED
+    )
+    assert apply_esxi_adoption_plan(fake_netbox, plan, confirmed=True) == 0
+    assert existing.custom_fields == {}
+    assert fake_netbox.mutations == []
+
+
+def test_safe_candidate_applies_while_review_candidate_is_untouched(fake_netbox):
+    _, cluster = _target(fake_netbox)
+    review = _add_vm(
+        fake_netbox, cluster, record_id=10, name='APP-VM',
+    )
+    safe = _add_vm(
+        fake_netbox,
+        cluster,
+        record_id=11,
+        name='LEGACY-SAFE-NAME',
+        ip_address='192.0.2.60/24',
+    )
+    hosts = _inventory()
+    second = deepcopy(hosts[0].virtual_machines[0])
+    second.external_id = '503c5ad7-aaaa-bbbb-cccc-0123456789ab'
+    second.vmid = second.external_id
+    second.source_id = f'esxi:{second.external_id}'
+    second.original_name = 'RENAMED-SAFE-VM'
+    second.normalized_name = second.original_name
+    second.interfaces[0].ip_addresses = ['192.0.2.60/24']
+    hosts[0].virtual_machines.append(second)
+
+    plan = build_esxi_adoption_plan(fake_netbox, hosts, _config())
+    vm_items = [item for item in plan.items if item.object_kind == 'vm']
+
+    assert {item.classification for item in vm_items} == {
+        AdoptionClassification.REVIEW_REQUIRED,
+        AdoptionClassification.SAFE_ADOPTION_CANDIDATE,
+    }
+    assert apply_esxi_adoption_plan(fake_netbox, plan, confirmed=True) == 1
+    assert review.custom_fields == {}
+    assert safe.custom_fields['sync_identities'] == [
+        next(
+            item.identity.to_record()
+            for item in vm_items
+            if item.classification
+            == AdoptionClassification.SAFE_ADOPTION_CANDIDATE
+        )
+    ]
+    assert [mutation[2] for mutation in fake_netbox.mutations] == [11]
 
 
 def test_multiple_live_vms_claiming_one_legacy_vm_are_ambiguous(fake_netbox):
