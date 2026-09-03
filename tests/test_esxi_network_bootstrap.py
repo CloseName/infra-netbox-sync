@@ -108,6 +108,31 @@ def _network_records(fake_netbox, vm, discovered, interface_id=20):
     return interface, mac, ip
 
 
+def _manual_primary(
+        fake_netbox,
+        vm,
+        *,
+        interface_id=146,
+        ip_id=192,
+        address='10.10.3.2/24',
+):
+    interface = fake_netbox.virtualization.interfaces.add(FakeRecord(
+        id=interface_id,
+        name='secondary-10-10-3-2',
+        virtual_machine=vm,
+        enabled=True,
+        custom_fields={'operator_owned': True},
+    ))
+    ip = fake_netbox.ipam.ip_addresses.add(FakeRecord(
+        id=ip_id,
+        address=address,
+        assigned_object_type='virtualization.vminterface',
+        assigned_object_id=interface.id,
+    ))
+    vm.primary_ip4 = ip
+    return interface, ip
+
+
 def _apply(fake_netbox, hosts, plan):
     return apply_esxi_managed_vm_network_bootstrap(
         fake_netbox, hosts, _config(), plan, confirmed=True,
@@ -269,6 +294,82 @@ def test_incompatible_manual_primary_ipv4_blocks_before_write(fake_netbox):
         assigned_object_id=None,
     ))
     records[0].primary_ip4 = manual
+
+    with pytest.raises(VMNetworkApplyError, match='primary IPv4 conflicts'):
+        _apply(fake_netbox, hosts, plan)
+    assert fake_netbox.mutations == []
+
+
+def test_same_vm_manual_primary_is_preserved_while_bootstrap_continues(
+        fake_netbox,
+        capsys,
+):
+    _, _, hosts, records, _ = _managed_setup(fake_netbox, count=2)
+    gate = records[0]
+    discovered_gate = hosts[0].virtual_machines[0]
+    managed_interface, managed_mac, managed_ip = _network_records(
+        fake_netbox, gate, discovered_gate, interface_id=147,
+    )
+    managed_ip.id = 193
+    legacy_interface, legacy_ip = _manual_primary(fake_netbox, gate)
+    plan = build_esxi_migration_plan(fake_netbox, hosts, _config())
+
+    _apply(fake_netbox, hosts, plan)
+
+    output = capsys.readouterr().out
+    assert 'PRIMARY IPv4 PRESERVE' in output
+    assert 'reason=same-vm-existing-primary' in output
+    assert 'primary_preserve_manual=1' in output
+    assert gate.primary_ip4.id == 192
+    assert legacy_interface.id == 146
+    assert legacy_ip.id == 192
+    assert legacy_ip.assigned_object_id == legacy_interface.id
+    assert managed_interface.id == 147
+    assert managed_ip.id == 193
+    assert managed_ip.assigned_object_id == managed_interface.id
+    assert managed_mac.assigned_object_id == managed_interface.id
+    assert len(fake_netbox.virtualization.interfaces.all()) == 3
+
+    fake_netbox.clear_mutations()
+    fresh = build_esxi_migration_plan(fake_netbox, hosts, _config())
+    _apply(fake_netbox, hosts, fresh)
+    assert fake_netbox.mutations == []
+
+
+def test_primary_owned_by_interface_on_foreign_vm_blocks(fake_netbox):
+    cluster, _, hosts, records, plan = _managed_setup(fake_netbox)
+    foreign_vm = fake_netbox.virtualization.virtual_machines.add(FakeRecord(
+        id=99, name='FOREIGN', cluster=cluster, custom_fields={},
+    ))
+    _, foreign_ip = _manual_primary(fake_netbox, foreign_vm)
+    records[0].primary_ip4 = foreign_ip
+
+    with pytest.raises(VMNetworkApplyError, match='primary IPv4 conflicts'):
+        _apply(fake_netbox, hosts, plan)
+    assert fake_netbox.mutations == []
+
+
+@pytest.mark.parametrize(
+    ('assigned_type', 'assigned_id'),
+    (
+        (None, None),
+        ('dcim.interface', 146),
+        ('virtualization.vminterface', 999),
+    ),
+)
+def test_unverifiable_primary_ownership_blocks(
+        fake_netbox,
+        assigned_type,
+        assigned_id,
+):
+    _, _, hosts, records, plan = _managed_setup(fake_netbox)
+    primary = fake_netbox.ipam.ip_addresses.add(FakeRecord(
+        id=192,
+        address='10.10.3.2/24',
+        assigned_object_type=assigned_type,
+        assigned_object_id=assigned_id,
+    ))
+    records[0].primary_ip4 = primary
 
     with pytest.raises(VMNetworkApplyError, match='primary IPv4 conflicts'):
         _apply(fake_netbox, hosts, plan)

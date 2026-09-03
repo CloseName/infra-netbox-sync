@@ -190,6 +190,20 @@ def _current_primary_ip_id(vm):
     )
 
 
+def _primary_ip_belongs_to_vm(ip_record, interfaces_by_id, vm_id):
+    if ip_record is None:
+        return False
+    assigned_type, assigned_id = _assigned_object(ip_record)
+    if assigned_type != 'virtualization.vminterface':
+        return False
+    interface = interfaces_by_id.get(_object_id(assigned_id))
+    if interface is None:
+        return False
+    return _object_id(
+        interface.serialize().get('virtual_machine')
+    ) == vm_id
+
+
 def resolve_vm_network_target(config):
     """Resolve target fields from SourceConfig or the legacy flat target."""
 
@@ -275,8 +289,10 @@ def apply_vm_networks(
     )
 
     interfaces_by_vm = {}
+    interfaces_by_id = {}
 
     for interface in all_interfaces:
+        interfaces_by_id[interface.id] = interface
         vm_id = _object_id(
             interface.serialize().get(
                 'virtual_machine'
@@ -376,6 +392,8 @@ def apply_vm_networks(
                 'netbox_vm': netbox_vm,
                 'nics': [],
                 'primary_candidate': None,
+                'primary_action': None,
+                'primary_current': None,
             }
 
             vm_ipv4 = []
@@ -610,24 +628,33 @@ def apply_vm_networks(
                     if len(candidate_records) == 1
                     else None
                 )
-                if (
-                        current_primary is not None
-                        and current_primary != candidate_id
-                ):
+                if current_primary is None:
+                    primary_action = 'set'
+                elif current_primary == candidate_id:
+                    primary_action = 'match'
+                else:
                     current_record = ips_by_id.get(current_primary)
                     current_address = (
                         current_record.serialize().get('address')
                         if current_record is not None
                         else None
                     )
-                    raise VMNetworkApplyError(
-                        'Existing primary IPv4 conflicts on '
-                        f'{vm.original_name}: current={current_address!r} '
-                        f'discovered={candidate!r}'
-                    )
+                    if not _primary_ip_belongs_to_vm(
+                            current_record,
+                            interfaces_by_id,
+                            netbox_vm.id,
+                    ):
+                        raise VMNetworkApplyError(
+                            'Existing primary IPv4 conflicts on '
+                            f'{vm.original_name}: current={current_address!r} '
+                            f'discovered={candidate!r}'
+                        )
+                    primary_action = 'preserve_manual'
+                    vm_context['primary_current'] = current_address
                 vm_context[
                     'primary_candidate'
                 ] = candidate
+                vm_context['primary_action'] = primary_action
 
             contexts.append(vm_context)
 
@@ -669,6 +696,8 @@ def apply_vm_networks(
     ip_create = 0
     ip_reuse = 0
     primary_set = 0
+    primary_match = 0
+    primary_preserve_manual = 0
 
     print('=== VM NETWORK APPLY PRECHECK ===')
     print(
@@ -752,12 +781,22 @@ def apply_vm_networks(
         ]
 
         if candidate is not None:
-            primary_set += 1
-
-            print(
-                f'  PRIMARY IPv4 '
-                f'candidate={candidate}'
-            )
+            primary_action = context['primary_action']
+            if primary_action == 'set':
+                primary_set += 1
+                print(f'  PRIMARY IPv4 SET candidate={candidate}')
+            elif primary_action == 'match':
+                primary_match += 1
+                print(f'  PRIMARY IPv4 MATCH candidate={candidate}')
+            else:
+                primary_preserve_manual += 1
+                print(
+                    '  PRIMARY IPv4 PRESERVE '
+                    f'vm={vm.original_name!r} '
+                    f'current={context["primary_current"]!r} '
+                    f'discovered={candidate!r} '
+                    'reason=same-vm-existing-primary'
+                )
 
     print()
     print('PRECHECK SUMMARY')
@@ -783,7 +822,14 @@ def apply_vm_networks(
         f'  ip_match={ip_reuse}'
     )
     print(
-        f'  primary_candidates={primary_set}'
+        f'  primary_set={primary_set}'
+    )
+    print(
+        f'  primary_match={primary_match}'
+    )
+    print(
+        '  primary_preserve_manual='
+        f'{primary_preserve_manual}'
     )
 
     print()
@@ -1028,6 +1074,7 @@ def apply_vm_networks(
         if (
             candidate is not None
             and candidate in applied_ips
+            and context['primary_action'] != 'preserve_manual'
         ):
             ip = applied_ips[
                 candidate
