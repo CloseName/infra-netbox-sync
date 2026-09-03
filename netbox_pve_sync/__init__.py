@@ -26,6 +26,7 @@ from .secret_resolver import FileSecretResolver, LegacyFileSecretResolver
 from .orchestrator import run_sources
 from .source_executor import SourceExecutorDispatch
 from .esxi_executor import execute_esxi_source
+from .esxi_runtime import execute_esxi_runtime
 from .netbox_apply import apply_hosts
 from .netbox_vm_apply import apply_virtual_machines
 from .netbox_vm_network_apply import apply_vm_networks
@@ -888,6 +889,31 @@ def execute_discovered_source(
         url=os.environ['NB_API_URL'],
         token=_read_secret(nb_token_variable),
     )
+
+    if source_config.source_type == 'esxi' and sync_mode == 'plan':
+        execute_esxi_runtime(
+            nb_api,
+            hosts,
+            source_config,
+            confirmed=False,
+        )
+        return
+
+    if source_config.source_type == 'esxi' and sync_mode == 'apply':
+        if apply_scope != 'full':
+            raise SystemExit(
+                'Normal ESXi apply requires APPLY_SCOPE=full. '
+                'No changes were written.'
+            )
+        execute_esxi_runtime(
+            nb_api,
+            hosts,
+            source_config,
+            confirmed=(
+                os.getenv('APPLY_CONFIRM', '') == 'FULL_WRITE'
+            ),
+        )
+        return
 
     # Load NetBox objects
     nb_objects = _load_nb_objects(nb_api)

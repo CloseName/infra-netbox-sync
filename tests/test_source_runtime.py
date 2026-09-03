@@ -126,6 +126,31 @@ def test_registry_all_loads_runnable_sources_without_source_id():
     assert configs == expected
 
 
+def test_registry_all_selects_runnable_proxmox_and_esxi_sources():
+    proxmox = sample_source_config()
+    password = SecretReference(provider='file', key='esxi-password')
+    esxi = replace(
+        proxmox,
+        id='esxi-a',
+        source_instance='esxi-a',
+        source_type='esxi',
+        legacy_identity_owner=False,
+        credentials=replace(
+            proxmox.credentials,
+            token_id=password,
+            token_secret=password,
+        ),
+    )
+    registry = FakeRegistry((proxmox, esxi))
+
+    configs = load_runtime_source_configs(
+        registry_all_environment(),
+        registry_factory=lambda _dsn, _schema: registry,
+    )
+
+    assert {config.source_type for config in configs} == {'proxmox', 'esxi'}
+
+
 def test_registry_all_with_no_runnable_sources_fails_closed():
     registry = FakeRegistry(())
 
