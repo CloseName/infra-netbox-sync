@@ -45,6 +45,8 @@ class DiscoveredHostInterface:
     vlan_id: int | None = None
     vlan_aware: bool = False
     comments: str | None = None
+    mac_address: str | None = None
+    management: bool = False
 
 
 @dataclass

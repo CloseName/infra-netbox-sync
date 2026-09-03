@@ -106,13 +106,35 @@ def fake_esxi_service(
         ),
         config=ns(
             network=ns(
-                vnic=[ns(spec=ns(ip=ns(ipAddress='192.0.2.10')))],
+                vnic=[ns(
+                    portgroup='Management Network',
+                    spec=ns(
+                        portgroup='Management Network',
+                        ip=ns(ipAddress='192.0.2.10'),
+                    ),
+                )],
                 pnic=[ns(
+                    key='key-vim.host.PhysicalNic-vmnic0',
                     device='vmnic0',
                     mac='00:11:22:33:44:55',
                     linkSpeed=ns(speedMb=1000),
                 )],
-                portgroup=[ns(spec=ns(name='VM Network', vlanId=120))],
+                portgroup=[
+                    ns(spec=ns(
+                        name='Management Network',
+                        vlanId=0,
+                        vswitchName='vSwitch0',
+                    )),
+                    ns(spec=ns(
+                        name='VM Network',
+                        vlanId=120,
+                        vswitchName='vSwitch0',
+                    )),
+                ],
+                vswitch=[ns(
+                    name='vSwitch0',
+                    pnic=['key-vim.host.PhysicalNic-vmnic0'],
+                )],
             ),
             storageDevice=ns(scsiLun=[host_disk]),
             autoStart=ns(powerInfo=[ns(key=vm, startAction='powerOn')]),

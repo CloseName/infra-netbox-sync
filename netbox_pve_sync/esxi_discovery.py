@@ -73,8 +73,40 @@ def _management_ip(host):
     return None
 
 
+def _management_pnic_names(host):
+    management_ip = _management_ip(host)
+    portgroup_names = {
+        str(
+            getattr(vnic, 'portgroup', None)
+            or _value(vnic, 'spec.portgroup', '')
+        )
+        for vnic in _items(_value(host, 'config.network.vnic', ()))
+        if _value(vnic, 'spec.ip.ipAddress') == management_ip
+    }
+    vswitch_names = {
+        str(_value(portgroup, 'spec.vswitchName'))
+        for portgroup in _items(_value(host, 'config.network.portgroup', ()))
+        if str(_value(portgroup, 'spec.name', '')) in portgroup_names
+    }
+    pnic_keys = {
+        str(key)
+        for vswitch in _items(_value(host, 'config.network.vswitch', ()))
+        if str(getattr(vswitch, 'name', '')) in vswitch_names
+        for key in _items(getattr(vswitch, 'pnic', ()))
+    }
+    return {
+        str(getattr(pnic, 'device', ''))
+        for pnic in _items(_value(host, 'config.network.pnic', ()))
+        if (
+            str(getattr(pnic, 'key', '')) in pnic_keys
+            or str(getattr(pnic, 'device', '')) in pnic_keys
+        )
+    }
+
+
 def _host_interfaces(host):
     result = []
+    management_pnics = _management_pnic_names(host)
     for pnic in _items(_value(host, 'config.network.pnic', ())):
         name = getattr(pnic, 'device', None)
         if not name:
@@ -89,6 +121,8 @@ def _host_interfaces(host):
                     if getattr(pnic, 'mac', None)
                     else None
                 ),
+                mac_address=getattr(pnic, 'mac', None),
+                management=str(name) in management_pnics,
             )
         )
     return result
